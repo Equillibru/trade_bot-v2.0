@@ -18,6 +18,7 @@ def _require_env_vars(names):
 
 # === Load environment ===
 load_dotenv()
+os.environ.setdefault("NEWSAPI_KEY", "dummy")
 _require_env_vars(
     [
         "TELEGRAM_TOKEN",
@@ -65,7 +66,7 @@ def call_with_retries(func, attempts=3, base_delay=1, name="request", alert=True
             time.sleep(base_delay * (2 ** i))
 
 def send(msg):
-    def_send():
+    def _send():
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         requests.post(url, data={"chat_id": TELEGRAM_CHAT_ID, "text": msg}, timeout=10)
 
@@ -91,21 +92,24 @@ def get_price(symbol):
     price = call_with_retries(_fetch, name=f"Binance price {symbol}")
     if price is not None:
         save_price(symbol, price)
+    return price    
         
 def place_order(symbol, side, qty):
-    def_order():
+    def _order():
         return client.create_order(
             symbol=symbol,
             side=side.upper(),
             type="MARKET",
             quantity=qty,
         )
+    if LIVE_MODE:
+        return call_with_retries(_order, name=f"Binance order {symbol}")
     else:
         print(f"[SIMULATED] {side} {qty} {symbol}")
         return {"simulated": True}
 
 def get_news_headlines(symbol, limit=5):
-    def_get():
+    def _get():
         query = symbol.replace("USDT", "")
         url = "https://newsapi.org/v2/everything"
         params = {
