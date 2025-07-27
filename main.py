@@ -119,9 +119,17 @@ def trade():
     positions = load_json(POSITION_FILE, {})
     balance = load_json(BALANCE_FILE, {"usdt": START_BALANCE})
     now = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M')
+    
+    # Optimization: fetch prices once for all traded/held symbols to avoid
+    # redundant API calls during this trading cycle
+    price_cache = {sym: get_price(sym) for sym in set(TRADING_PAIRS) | set(positions.keys())}
 
+    # Calculate current invested amount using cached prices outside the loop
+    current_invested = sum(p["qty"] * price_cache.get(sym, 0) for sym, p in positions.items())
+    remaining_allowance = DAILY_MAX_INVEST - current_invested
+    
     for symbol in TRADING_PAIRS:
-        price = get_price(symbol)
+        price = price_cache.get(symbol)
         if not price:
             print(f"⚠️ No price for {symbol}")
             continue
@@ -136,9 +144,8 @@ def trade():
             print(f"🟡 {symbol} skipped — no strong positive news")
             #continue
 
-        # Daily max check
-        current_invested = sum(p["qty"] * get_price(sym) for sym, p in positions.items())
-        remaining_allowance = DAILY_MAX_INVEST - current_invested
+        # Daily max check uses allowance calculated before the loop
+      
         if remaining_allowance <= 0:
             print(f"🔒 Daily investment cap reached — skipping {symbol}")
             continue
@@ -158,6 +165,7 @@ def trade():
 
             positions[symbol] = {"type": "LONG", "qty": qty, "entry": price}
             balance["usdt"] -= qty * price
+            remaining_allowance -= qty * price  # update allowance after buying
             log_trade(symbol, "BUY", qty, price)
 
             total_cost = qty * price
@@ -175,6 +183,7 @@ def trade():
 
             if pnl >= 0.5:
                 balance["usdt"] += qty * price
+                remaining_allowance += qty * price  # update allowance after closing
                 del positions[symbol]
                 log_trade(symbol, "CLOSE-LONG", qty, price)
 
@@ -182,7 +191,8 @@ def trade():
                 print(f"✅ CLOSE {symbol} at ${price:.2f} | Profit: ${profit:.2f} USDT (+{pnl:.2f}%)")
 
         # Update and report balance
-        invested = sum(p["qty"] * get_price(sym) for sym, p in positions.items())
+        # Use cached prices to avoid extra API requests when calculating balance
+        invested = sum(p["qty"] * price_cache.get(sym, 0) for sym, p in positions.items())
         total = balance["usdt"] + invested
         send(f"📊 Updated Balance: ${total:.2f} USDT — {now}")
 
