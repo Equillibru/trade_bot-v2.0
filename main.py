@@ -8,8 +8,26 @@ import math
 from dotenv import load_dotenv
 from binance.client import Client
 
+def _require_env_vars(names):
+    """Ensure required environment variables are present."""
+    missing = [name for name in names if not os.getenv(name)]
+    if missing:
+        raise SystemExit(
+            f"Missing required environment variables: {', '.join(missing)}"
+        )
+
 # === Load environment ===
 load_dotenv()
+_require_env_vars(
+    [
+        "TELEGRAM_TOKEN",
+        "TELEGRAM_CHAT_ID",
+        "BINANCE_API_KEY",
+        "BINANCE_SECRET_KEY",
+        "NEWSAPI_KEY",
+    ]
+)
+
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 BINANCE_KEY = os.getenv("BINANCE_API_KEY")
