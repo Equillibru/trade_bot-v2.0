@@ -51,7 +51,9 @@ def save_json(path, data):
 
 def get_price(symbol):
     try:
-        return float(client.get_symbol_ticker(symbol=symbol)['price'])
+        price = float(client.get_symbol_ticker(symbol=symbol)["price"])
+        save_price(symbol, price)
+        return price
     except:
         return None
 
@@ -90,7 +92,28 @@ def log_trade(symbol, typ, qty, price):
     save_json(TRADE_LOG_FILE, log)
 
 def save_price(symbol, price):
-    pass  # implement if using DB
+    """Persist price data with a timestamp into a SQLite database."""
+    try:
+        conn = sqlite3.connect("prices.db")
+        cur = conn.cursor()
+        cur.execute(
+            "CREATE TABLE IF NOT EXISTS prices (timestamp TEXT, symbol TEXT, price REAL)"
+        )
+        timestamp = datetime.datetime.now(datetime.timezone.utc).strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
+        cur.execute(
+            "INSERT INTO prices (timestamp, symbol, price) VALUES (?, ?, ?)",
+            (timestamp, symbol, price),
+        )
+        conn.commit()
+    except Exception as e:
+        print(f"Price save error: {e}")
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 def trade():
     positions = load_json(POSITION_FILE, {})
@@ -102,8 +125,7 @@ def trade():
         if not price:
             print(f"⚠️ No price for {symbol}")
             continue
-
-        save_price(symbol, price)
+        
         print(f"🔍 {symbol} @ ${price:.2f}")
 
         headlines = get_news_headlines(symbol)
