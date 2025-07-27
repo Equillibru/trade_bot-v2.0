@@ -29,12 +29,29 @@ TRADING_PAIRS = ["BTCUSDT", "ETHUSDT"]
 bad_words = ["lawsuit", "ban", "hack", "crash", "regulation", "investigation"]
 good_words = ["surge", "rally", "gain", "partnership", "bullish", "upgrade", "adoption"]
 
+def call_with_retries(func, attempts=3, base_delay=1, name="request", alert=True):
+    """Call a function with retries and exponential backoff."""
+    for i in range(attempts):
+        try:
+            return func()
+        except Exception as e:
+            if i == attempts - 1:
+                msg = f"{name} failed after {attempts} attempts: {e}"
+                print(msg)
+                if alert:
+                    try:
+                        send(f"⚠️ {msg}")
+                    except Exception as send_err:
+                        print(f"Error sending alert: {send_err}")
+                return None
+            time.sleep(base_delay * (2 ** i))
+
 def send(msg):
-    try:
+    def_send():
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        requests.post(url, data={"chat_id": TELEGRAM_CHAT_ID, "text": msg})
-    except Exception as e:
-        print(f"Telegram error: {e}")
+        requests.post(url, data={"chat_id": TELEGRAM_CHAT_ID, "text": msg}, timeout=10)
+
+    call_with_retries(_send, name="Telegram", alert=False)
 
 def load_json(path, default):
     try:
@@ -50,27 +67,27 @@ def save_json(path, data):
         json.dump(data, f, indent=2)
 
 def get_price(symbol):
-    try:
-        price = float(client.get_symbol_ticker(symbol=symbol)["price"])
-        save_price(symbol, price)
-        return price
-    except:
-        return None
+    def _fetch():
+        return float(client.get_symbol_ticker(symbol=symbol)["price"])
 
+    price = call_with_retries(_fetch, name=f"Binance price {symbol}")
+    if price is not None:
+        save_price(symbol, price)
+        
 def place_order(symbol, side, qty):
-    if LIVE_MODE:
+    def_order():
         return client.create_order(
             symbol=symbol,
             side=side.upper(),
             type="MARKET",
-            quantity=qty
+            quantity=qty,
         )
     else:
         print(f"[SIMULATED] {side} {qty} {symbol}")
         return {"simulated": True}
 
 def get_news_headlines(symbol, limit=5):
-    try:
+    def_get():
         query = symbol.replace("USDT", "")
         url = "https://newsapi.org/v2/everything"
         params = {
@@ -78,12 +95,13 @@ def get_news_headlines(symbol, limit=5):
             "apiKey": NEWSAPI_KEY,
             "language": "en",
             "sortBy": "publishedAt",
-            "pageSize": limit
+            "pageSize": limit,
         }
-        r = requests.get(url, params=params).json()
-        return [a["title"] for a in r.get("articles", []) if "title" in a]
-    except:
-        return []
+        resp = requests.get(url, params=params, timeout=10)
+        return resp.json()
+
+    data = call_with_retries(_get, name=f"NewsAPI {symbol}") or {}
+    return [a["title"] for a in data.get("articles", []) if "title" in a]
 
 def log_trade(symbol, typ, qty, price):
     log = load_json(TRADE_LOG_FILE, [])
