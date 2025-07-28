@@ -163,21 +163,20 @@ def trade():
     positions = load_json(POSITION_FILE, {})
     balance = load_json(BALANCE_FILE, {"usdt": START_BALANCE})
     now = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M')
-    
-    # Optimization: fetch prices once for all traded/held symbols to avoid
-    # redundant API calls during this trading cycle
+
+    # Optimization: fetch prices once for all traded/held symbols to avoid redundant API calls
     price_cache = {sym: get_price(sym) for sym in set(TRADING_PAIRS) | set(positions.keys())}
 
     # Calculate current invested amount using cached prices outside the loop
     current_invested = sum(p["qty"] * price_cache.get(sym, 0) for sym, p in positions.items())
     remaining_allowance = DAILY_MAX_INVEST - current_invested
-    
+
     for symbol in TRADING_PAIRS:
         price = price_cache.get(symbol)
         if not price:
             print(f"⚠️ No price for {symbol}")
             continue
-        
+
         print(f"🔍 {symbol} @ ${price:.2f}")
 
         headlines = get_news_headlines(symbol)
@@ -186,19 +185,15 @@ def trade():
             continue
         if not any(any(good in h.lower() for good in good_words) for h in headlines):
             print(f"🟡 {symbol} skipped — no strong positive news")
-            #continue
+            continue
 
         # Daily max check uses allowance calculated before the loop
-      
         if remaining_allowance <= 0:
             print(f"🔒 Daily investment cap reached — skipping {symbol}")
             continue
 
-        # Calculate qty using a portion of the initial balance, not the
-        # currently available balance which may fluctuate with open
-        # positions. This keeps trade sizing consistent based on the
-        # configured starting amount.
-        trade_usdt = min(START_BALANCE * 0.25, remaining_allowance)
+        # Calculate qty (25% of USDT or remaining cap)
+        trade_usdt = min(balance["usdt"] * 0.25, remaining_allowance)
         qty = math.floor((trade_usdt / price) * 1e6) / 1e6
         print(f"🔢 {symbol} → trade_usdt: {trade_usdt:.4f}, price: {price:.2f}, qty: {qty}")
         if qty <= 0:
@@ -211,8 +206,8 @@ def trade():
                 continue
 
             positions[symbol] = {"type": "LONG", "qty": qty, "entry": price}
-            balance["usdt"] -= qty * price
-            remaining_allowance -= qty * price  # update allowance after buying
+            balance["usdt"] -= qty * price  # Deduct the cost of the trade from the balance
+            remaining_allowance -= qty * price  # Update allowance after buying
             log_trade(symbol, "BUY", qty, price)
 
             total_cost = qty * price
@@ -229,19 +224,18 @@ def trade():
             print(f"📈 {symbol} Entry ${entry:.2f} → Now ${price:.2f} | PnL: {pnl:.2f}%")
 
             if pnl >= 0.5:
-                balance["usdt"] += qty * price
-                remaining_allowance += qty * price  # update allowance after closing
+                balance["usdt"] += qty * price  # Add the proceeds of the trade back to the balance
+                remaining_allowance += qty * price  # Update allowance after closing
                 del positions[symbol]
                 log_trade(symbol, "CLOSE-LONG", qty, price)
 
                 send(f"✅ CLOSE {symbol} at ${price:.2f} — Profit: ${profit:.2f} USDT (+{pnl:.2f}%) — {now}")
                 print(f"✅ CLOSE {symbol} at ${price:.2f} | Profit: ${profit:.2f} USDT (+{pnl:.2f}%)")
 
-        # Update and report balance
-        # Use cached prices to avoid extra API requests when calculating balance
-        invested = sum(p["qty"] * price_cache.get(sym, 0) for sym, p in positions.items())
-        total = balance["usdt"] + invested
-        send(f"📊 Updated Balance: ${total:.2f} USDT — {now}")
+    # Update and report balance
+    invested = sum(p["qty"] * price_cache.get(sym, 0) for sym, p in positions.items())
+    total = balance["usdt"] + invested
+    send(f"📊 Updated Balance: ${total:.2f} USDT — {now}")
 
     save_json(POSITION_FILE, positions)
     save_json(BALANCE_FILE, balance)
