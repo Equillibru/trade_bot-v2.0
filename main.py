@@ -206,9 +206,14 @@ def trade():
             print(f"🚫 {symbol} blocked — negative news detected")
             continue
 
-        if USE_NEWS_FILTER and not any(any(good in h.lower() for good in good_words) for h in headlines):
-            print(f"🟡 {symbol} skipped — no strong positive news")
-            continue
+        if USE_NEWS_FILTER:
+            has_good = any(
+                any(good in h.lower() for good in good_words)
+                for h in headlines
+            )
+            if headlines and not has_good:
+                print(f"🟡 {symbol} skipped — no strong positive news")
+                continue
 
     # Live cap enforcement: only 25% of START_BALANCE can be invested
         current_invested = sum(
