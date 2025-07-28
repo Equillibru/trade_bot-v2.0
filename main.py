@@ -43,6 +43,8 @@ DAILY_MAX_INVEST = START_BALANCE * 0.20
 POSITION_FILE = "positions.json"
 BALANCE_FILE = "balance.json"
 TRADE_LOG_FILE = "trade_log.json"
+MIN_TRADE_USDT = 0.10
+MAX_TRADE_USDT = 10.0
 TRADING_PAIRS = ["BTCUSDT", "ETHUSDT", "XRPUSDT", "SOLUSDT", "DOGEUSDT", "ENAUSDT", "PENGUUSDT", "TRXUSDT", 
                  "ADAUSDT", "PEPEUSDT", "BONKUSDT", "LTCUSDT", "BNBUSDT", "AVAXUSDT", "XLMUSDT", "UNIUSDT", 
                  "CFXUSDT", "AAVEUSDT", "WIFUSDT", "KERNELUSDT", "BCHUSDT", "ARBUSDT", "ENSUSDT", 
@@ -164,17 +166,13 @@ def trade():
     balance = load_json(BALANCE_FILE, {"usdt": START_BALANCE})
     now = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M')
 
-    # Optimization: fetch prices once for all traded/held symbols to avoid redundant API calls
+    # Cache prices for all relevant symbols
     price_cache = {sym: get_price(sym) for sym in set(TRADING_PAIRS) | set(positions.keys())}
-
-    # Calculate current invested amount using cached prices outside the loop
-    current_invested = sum(p["qty"] * price_cache.get(sym, 0) for sym, p in positions.items())
-    remaining_allowance = DAILY_MAX_INVEST - current_invested
 
     for symbol in TRADING_PAIRS:
         price = price_cache.get(symbol)
-        if not price:
-            print(f"⚠️ No price for {symbol}")
+        if not price or price <= 0:
+            print(f"⚠️ Invalid price for {symbol}")
             continue
 
         print(f"🔍 {symbol} @ ${price:.2f}")
@@ -187,27 +185,39 @@ def trade():
             print(f"🟡 {symbol} skipped — no strong positive news")
             continue
 
-        # Daily max check uses allowance calculated before the loop
+    # Recalculate allowance based on live positions
+        current_invested = sum(p["qty"] * price_cache.get(sym, 0) for sym, p in positions.items())
+        remaining_allowance = START_BALANCE * 0.25 - current_invested
         if remaining_allowance <= 0:
-            print(f"🔒 Daily investment cap reached — skipping {symbol}")
+            print(f"🔒 Investment cap reached — skipping {symbol}")
             continue
-
-        # Calculate qty (25% of USDT or remaining cap)
-        trade_usdt = min(balance["usdt"] * 0.25, remaining_allowance)
+    # Limit per-trade USDT to [0.10, 10.00] and not more than available balance or remaining cap
+        trade_usdt = min(10.0, balance["usdt"] * 0.25, remaining_allowance)
+        if trade_usdt < 0.10:
+            print(f"⚠️ {symbol} skipped — trade value ${trade_usdt:.4f} below 0.10 minimum")
+            continue
+            
         qty = math.floor((trade_usdt / price) * 1e6) / 1e6
-        print(f"🔢 {symbol} → trade_usdt: {trade_usdt:.4f}, price: {price:.2f}, qty: {qty}")
         if qty <= 0:
             print(f"❌ Qty for {symbol} is zero — skipping")
             continue
 
+print(f"🔢 {symbol} → trade_usdt: {trade_usdt:.4f}, price: {price:.2f}, qty: {qty}")
+
+        if qty <= 0:
+            print(f"❌ Qty for {symbol} is zero — skipping")
+            continue
+        if qty * price < 0.25:
+            print(f"⚠️ {symbol} skipped — trade value ${qty * price:.4f} below 0.25 minimum")
+            continue
+
         if symbol not in positions:
-            if qty <= 0 or qty * price > balance["usdt"]:
-                print(f"❌ Cannot buy {symbol} — qty too low or insufficient funds")
+            if qty * price > balance["usdt"]:
+                print(f"❌ Cannot buy {symbol} — insufficient funds")
                 continue
 
             positions[symbol] = {"type": "LONG", "qty": qty, "entry": price}
-            balance["usdt"] -= qty * price  # Deduct the cost of the trade from the balance
-            remaining_allowance -= qty * price  # Update allowance after buying
+            balance["usdt"] -= qty * price
             log_trade(symbol, "BUY", qty, price)
 
             total_cost = qty * price
@@ -224,21 +234,21 @@ def trade():
             print(f"📈 {symbol} Entry ${entry:.2f} → Now ${price:.2f} | PnL: {pnl:.2f}%")
 
             if pnl >= 0.5:
-                balance["usdt"] += qty * price  # Add the proceeds of the trade back to the balance
-                remaining_allowance += qty * price  # Update allowance after closing
+                balance["usdt"] += qty * price
                 del positions[symbol]
                 log_trade(symbol, "CLOSE-LONG", qty, price)
 
                 send(f"✅ CLOSE {symbol} at ${price:.2f} — Profit: ${profit:.2f} USDT (+{pnl:.2f}%) — {now}")
                 print(f"✅ CLOSE {symbol} at ${price:.2f} | Profit: ${profit:.2f} USDT (+{pnl:.2f}%)")
 
-    # Update and report balance
+    # 🧾 Update and report balance
     invested = sum(p["qty"] * price_cache.get(sym, 0) for sym, p in positions.items())
     total = balance["usdt"] + invested
     send(f"📊 Updated Balance: ${total:.2f} USDT — {now}")
 
     save_json(POSITION_FILE, positions)
     save_json(BALANCE_FILE, balance)
+
 
 def main():
     print("🤖 Trading bot started.")
