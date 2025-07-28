@@ -100,8 +100,29 @@ def get_price(symbol):
     price = call_with_retries(_fetch, name=f"Binance price {symbol}")
     if price is not None:
         save_price(symbol, price)
-    return price    
-        
+        return price
+
+    # fallback to last stored price if live request fails
+    try:
+        conn = sqlite3.connect("prices.db")
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT price FROM prices WHERE symbol=? ORDER BY timestamp DESC LIMIT 1",
+            (symbol,),
+        )
+        row = cur.fetchone()
+        if row:
+            price = row[0]
+            print(f"Using cached price for {symbol}: {price}")
+    except Exception as e:
+        print(f"Price load error: {e}")
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    return price
 def place_order(symbol, side, qty):
     def _order():
         return client.create_order(
