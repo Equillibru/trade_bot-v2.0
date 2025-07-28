@@ -190,9 +190,13 @@ def trade():
             continue
 
     # Live cap enforcement: only 25% of START_BALANCE can be invested
-        current_invested = sum(p["qty"] * price_cache.get(sym, 0) for sym, p in positions.items())
+        current_invested = sum(
+            p["qty"] * price_cache.get(sym, 0) for sym, p in positions.items()
+        )
         remaining_allowance = START_BALANCE * 0.25 - current_invested
-        print(f"💰 Balance: ${balance['usdt']:.2f}, Invested: ${current_invested:.2f}, Remaining cap: ${remaining_allowance:.2f}")
+        print(
+            f"💰 Balance: ${balance['usdt']:.2f}, Invested: ${current_invested:.2f}, Remaining cap: ${remaining_allowance:.2f}"
+        )
 
         if remaining_allowance <= 0:
             print(f"🔒 Skipped {symbol} — daily investment cap reached")
