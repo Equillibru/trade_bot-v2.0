@@ -37,7 +37,7 @@ NEWSAPI_KEY = os.getenv("NEWSAPI_KEY")
 
 client = Client(BINANCE_KEY, BINANCE_SECRET)
 
-LIVE_MODE = True
+LIVE_MODE = False
 START_BALANCE = 100.32  # Example starting balance
 DAILY_MAX_INVEST = START_BALANCE * 0.20
 POSITION_FILE = "positions.json"
