@@ -209,21 +209,21 @@ def trade():
         if qty <= 0 or actual_usdt < MIN_TRADE_USDT:
             print(f"❌ Qty for {symbol} is zero or below minimum — skipping")
             continue
-        if trade_value < 0.10 or trade_value > 10.00:
-            print(f"⚠️ Skipped {symbol} — trade value ${trade_value:.4f} outside [0.10, 10.00] range")
+        if actual_usdt < 0.10 or actual_usdt > 10.00:
+            print(f"⚠️ Skipped {symbol} — trade value ${actual_usdt:.4f} outside [0.10, 10.00] range")
             continue
 
         if symbol not in positions:
-            if trade_value > balance["usdt"]:
-                print(f"❌ Skipped {symbol} — insufficient balance for ${trade_value:.2f}")
+            if actual_usdt > balance["usdt"]:
+                print(f"❌ Skipped {symbol} — insufficient balance for ${actual_usdt:.2f}")
                 continue
 
             positions[symbol] = {"type": "LONG", "qty": qty, "entry": price}
-            balance["usdt"] -= trade_value
+            balance["usdt"] -= actual_usdt
             log_trade(symbol, "BUY", qty, price)
 
-            send(f"🟢 BUY {qty} {symbol} at ${price:.2f} — Total: ${trade_value:.2f} USDT — {now}")
-            print(f"✅ BUY {qty} {symbol} at ${price:.2f} (${trade_value:.2f})")
+            send(f"🟢 BUY {qty} {symbol} at ${price:.2f} — Total: ${actual_usdt:.2f} USDT — {now}")
+            print(f"✅ BUY {qty} {symbol} at ${price:.2f} (${actual_usdt:.2f})")
 
         else:
             pos = positions[symbol]
