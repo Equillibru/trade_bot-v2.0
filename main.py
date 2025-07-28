@@ -165,7 +165,7 @@ def trade():
     positions = load_json(POSITION_FILE, {})
     balance = load_json(BALANCE_FILE, {"usdt": START_BALANCE})
     now = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M')
-    USE_NEWS_FILTER = True
+    USE_NEWS_FILTER = False
 
     price_cache = {sym: get_price(sym) for sym in set(TRADING_PAIRS) | set(positions.keys())}
 
