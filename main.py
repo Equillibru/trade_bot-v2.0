@@ -202,8 +202,8 @@ def trade():
             print(f"❌ Qty for {symbol} is zero — skipping")
             continue
 
-print(f"🔢 {symbol} → trade_usdt: {trade_usdt:.4f}, price: {price:.2f}, qty: {qty}")
-
+        print(f"🔢 {symbol} → trade_usdt: {trade_usdt:.4f}, price: {price:.2f}, qty: {qty}")
+        
         if qty <= 0:
             print(f"❌ Qty for {symbol} is zero — skipping")
             continue
