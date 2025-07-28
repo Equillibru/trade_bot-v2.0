@@ -165,64 +165,60 @@ def trade():
     positions = load_json(POSITION_FILE, {})
     balance = load_json(BALANCE_FILE, {"usdt": START_BALANCE})
     now = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M')
+    USE_NEWS_FILTER = True
 
-    # Cache prices for all relevant symbols
     price_cache = {sym: get_price(sym) for sym in set(TRADING_PAIRS) | set(positions.keys())}
 
     for symbol in TRADING_PAIRS:
         price = price_cache.get(symbol)
         if not price or price <= 0:
-            print(f"⚠️ Invalid price for {symbol}")
+            print(f"⚠️ {symbol} skipped — invalid price")
             continue
 
         print(f"🔍 {symbol} @ ${price:.2f}")
-
         headlines = get_news_headlines(symbol)
+
         if any(any(bad in h.lower() for bad in bad_words) for h in headlines):
-            print(f"🚫 {symbol} blocked by negative news")
+            print(f"🚫 {symbol} blocked — negative news detected")
             continue
-        if not any(any(good in h.lower() for good in good_words) for h in headlines):
+
+        if USE_NEWS_FILTER and not any(any(good in h.lower() for good in good_words) for h in headlines):
             print(f"🟡 {symbol} skipped — no strong positive news")
             continue
 
-    # Recalculate allowance based on live positions
+        # Live cap enforcement: only 25% of START_BALANCE can be invested
         current_invested = sum(p["qty"] * price_cache.get(sym, 0) for sym, p in positions.items())
         remaining_allowance = START_BALANCE * 0.25 - current_invested
+        print(f"💰 Balance: ${balance['usdt']:.2f}, Invested: ${current_invested:.2f}, Remaining cap: ${remaining_allowance:.2f}")
+
         if remaining_allowance <= 0:
-            print(f"🔒 Investment cap reached — skipping {symbol}")
-            continue
-    # Limit per-trade USDT to [0.10, 10.00] and not more than available balance or remaining cap
-        trade_usdt = min(10.0, balance["usdt"] * 0.25, remaining_allowance)
-        if trade_usdt < 0.10:
-            print(f"⚠️ {symbol} skipped — trade value ${trade_usdt:.4f} below 0.10 minimum")
-            continue
-            
-        qty = math.floor((trade_usdt / price) * 1e6) / 1e6
-        if qty <= 0:
-            print(f"❌ Qty for {symbol} is zero — skipping")
+            print(f"🔒 Skipped {symbol} — daily investment cap reached")
             continue
 
-        print(f"🔢 {symbol} → trade_usdt: {trade_usdt:.4f}, price: {price:.2f}, qty: {qty}")
-        
+        trade_usdt = min(balance["usdt"] * 0.25, remaining_allowance)
+        qty = math.floor((trade_usdt / price) * 1e6) / 1e6
+        trade_value = qty * price
+
+        print(f"🔢 {symbol} → trade_usdt={trade_usdt:.4f}, qty={qty}, value={trade_value:.4f}")
+
         if qty <= 0:
-            print(f"❌ Qty for {symbol} is zero — skipping")
+            print(f"❌ Skipped {symbol} — quantity zero")
             continue
-        if qty * price < 0.25:
-            print(f"⚠️ {symbol} skipped — trade value ${qty * price:.4f} below 0.25 minimum")
+        if trade_value < 0.10 or trade_value > 10.00:
+            print(f"⚠️ Skipped {symbol} — trade value ${trade_value:.4f} outside [0.10, 10.00] range")
             continue
 
         if symbol not in positions:
-            if qty * price > balance["usdt"]:
-                print(f"❌ Cannot buy {symbol} — insufficient funds")
+            if trade_value > balance["usdt"]:
+                print(f"❌ Skipped {symbol} — insufficient balance for ${trade_value:.2f}")
                 continue
 
             positions[symbol] = {"type": "LONG", "qty": qty, "entry": price}
-            balance["usdt"] -= qty * price
+            balance["usdt"] -= trade_value
             log_trade(symbol, "BUY", qty, price)
 
-            total_cost = qty * price
-            send(f"🟢 BUY {qty} {symbol} at ${price:.2f} — Total: ${total_cost:.2f} USDT — {now}")
-            print(f"✅ BUY {qty} {symbol} at ${price:.2f} (${total_cost:.2f})")
+            send(f"🟢 BUY {qty} {symbol} at ${price:.2f} — Total: ${trade_value:.2f} USDT — {now}")
+            print(f"✅ BUY {qty} {symbol} at ${price:.2f} (${trade_value:.2f})")
 
         else:
             pos = positions[symbol]
@@ -231,7 +227,7 @@ def trade():
             pnl = ((price - entry) / entry) * 100
             profit = (price - entry) * qty
 
-            print(f"📈 {symbol} Entry ${entry:.2f} → Now ${price:.2f} | PnL: {pnl:.2f}%")
+            print(f"📈 {symbol} Entry=${entry:.2f} → Now=${price:.2f} | PnL={pnl:.2f}%")
 
             if pnl >= 0.5:
                 balance["usdt"] += qty * price
@@ -241,13 +237,14 @@ def trade():
                 send(f"✅ CLOSE {symbol} at ${price:.2f} — Profit: ${profit:.2f} USDT (+{pnl:.2f}%) — {now}")
                 print(f"✅ CLOSE {symbol} at ${price:.2f} | Profit: ${profit:.2f} USDT (+{pnl:.2f}%)")
 
-    # 🧾 Update and report balance
+    # Balance update
     invested = sum(p["qty"] * price_cache.get(sym, 0) for sym, p in positions.items())
     total = balance["usdt"] + invested
     send(f"📊 Updated Balance: ${total:.2f} USDT — {now}")
 
     save_json(POSITION_FILE, positions)
     save_json(BALANCE_FILE, balance)
+
 
 
 def main():
