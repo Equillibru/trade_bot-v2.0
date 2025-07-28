@@ -186,7 +186,7 @@ def trade():
             print(f"🟡 {symbol} skipped — no strong positive news")
             continue
 
-        # Live cap enforcement: only 25% of START_BALANCE can be invested
+    # Live cap enforcement: only 25% of START_BALANCE can be invested
         current_invested = sum(p["qty"] * price_cache.get(sym, 0) for sym, p in positions.items())
         remaining_allowance = START_BALANCE * 0.25 - current_invested
         print(f"💰 Balance: ${balance['usdt']:.2f}, Invested: ${current_invested:.2f}, Remaining cap: ${remaining_allowance:.2f}")
@@ -195,14 +195,19 @@ def trade():
             print(f"🔒 Skipped {symbol} — daily investment cap reached")
             continue
 
-        trade_usdt = min(balance["usdt"] * 0.25, remaining_allowance)
-        qty = math.floor((trade_usdt / price) * 1e6) / 1e6
-        trade_value = qty * price
+        # Calculate qty (25% of USDT or remaining cap) with min/max bounds
+        trade_usdt = min(balance["usdt"] * 0.25, remaining_allowance, MAX_TRADE_USDT)
+        if trade_usdt < MIN_TRADE_USDT:
+            print(f"❌ Trade amount {trade_usdt:.2f} USDT below minimum — skipping {symbol}")
+            continue
+            
+        qty = math.floor((trade_usdt / price) * 1e4) / 1e4
+        actual_usdt = qty * price
 
         print(f"🔢 {symbol} → trade_usdt={trade_usdt:.4f}, qty={qty}, value={trade_value:.4f}")
 
-        if qty <= 0:
-            print(f"❌ Skipped {symbol} — quantity zero")
+        if qty <= 0 or actual_usdt < MIN_TRADE_USDT:
+            print(f"❌ Qty for {symbol} is zero or below minimum — skipping")
             continue
         if trade_value < 0.10 or trade_value > 10.00:
             print(f"⚠️ Skipped {symbol} — trade value ${trade_value:.4f} outside [0.10, 10.00] range")
