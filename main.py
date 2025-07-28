@@ -43,7 +43,11 @@ DAILY_MAX_INVEST = START_BALANCE * 0.20
 POSITION_FILE = "positions.json"
 BALANCE_FILE = "balance.json"
 TRADE_LOG_FILE = "trade_log.json"
-TRADING_PAIRS = ["BTCUSDT", "ETHUSDT"]
+TRADING_PAIRS = ["BTCUSDT", "ETHUSDT", "XRPUSDT", "SOLUSDT", "DOGEUSDT", "ENAUSDT", "PENGUUSDT", "TRXUSDT", 
+                 "ADAUSDT", "PEPEUSDT", "BONKUSDT", "LTCUSDT", "BNBUSDT", "AVAXUSDT", "XLMUSDT", "UNIUSDT", 
+                 "CFXUSDT", "AAVEUSDT", "WIFUSDT", "KERNELUSDT", "BCHUSDT", "ARBUSDT", "PUMPUSDT", "ENSUSDT", 
+                 "DOTUSDT", "MNTUSDT", "CKBUSDT", "LINKUSDT", "TONUSDT", "NEARUSDT", "ETCUSDT", "CAKEUSDT", 
+                 "SHIBUSDT", "HYPEUSDT", "OPUSDT"]
 
 bad_words = ["lawsuit", "ban", "hack", "crash", "regulation", "investigation"]
 good_words = ["surge", "rally", "gain", "partnership", "bullish", "upgrade", "adoption"]
@@ -190,8 +194,11 @@ def trade():
             print(f"🔒 Daily investment cap reached — skipping {symbol}")
             continue
 
-        # Calculate qty (25% of USDT or remaining cap)
-        trade_usdt = min(balance["usdt"] * 0.25, remaining_allowance)
+        # Calculate qty using a portion of the initial balance, not the
+        # currently available balance which may fluctuate with open
+        # positions. This keeps trade sizing consistent based on the
+        # configured starting amount.
+        trade_usdt = min(START_BALANCE * 0.25, remaining_allowance)
         qty = math.floor((trade_usdt / price) * 1e6) / 1e6
         print(f"🔢 {symbol} → trade_usdt: {trade_usdt:.4f}, price: {price:.2f}, qty: {qty}")
         if qty <= 0:
