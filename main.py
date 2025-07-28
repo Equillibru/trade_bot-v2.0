@@ -38,6 +38,8 @@ NEWSAPI_KEY = os.getenv("NEWSAPI_KEY")
 client = Client(BINANCE_KEY, BINANCE_SECRET)
 
 LIVE_MODE = False
+# Toggle news-based trading filter via env var (default: True)
+USE_NEWS_FILTER = os.getenv("USE_NEWS_FILTER", "True").lower() == "true"
 START_BALANCE = 100.32  # Example starting balance
 DAILY_MAX_INVEST = START_BALANCE * 0.20
 POSITION_FILE = "positions.json"
@@ -165,7 +167,8 @@ def trade():
     positions = load_json(POSITION_FILE, {})
     balance = load_json(BALANCE_FILE, {"usdt": START_BALANCE})
     now = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M')
-    USE_NEWS_FILTER = False
+    # Respect global USE_NEWS_FILTER setting which can be toggled via env var
+    global USE_NEWS_FILTER
 
     price_cache = {sym: get_price(sym) for sym in set(TRADING_PAIRS) | set(positions.keys())}
 
@@ -204,7 +207,7 @@ def trade():
         qty = math.floor((trade_usdt / price) * 1e4) / 1e4
         actual_usdt = qty * price
 
-        print(f"🔢 {symbol} → trade_usdt={trade_usdt:.4f}, qty={qty}, value={trade_value:.4f}")
+        print(f"🔢 {symbol} → trade_usdt={trade_usdt:.4f}, qty={qty}, value={actual_usdt:.4f}")
 
         if qty <= 0 or actual_usdt < MIN_TRADE_USDT:
             print(f"❌ Qty for {symbol} is zero or below minimum — skipping")
