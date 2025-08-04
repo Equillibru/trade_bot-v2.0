@@ -54,7 +54,7 @@ TRADING_PAIRS = ["BTCUSDT", "ETHUSDT", "XRPUSDT", "SOLUSDT", "DOGEUSDT", "ENAUSD
                  "SHIBUSDT", "OPUSDT"]
 
 bad_words = ["lawsuit", "ban", "hack", "crash", "regulation", "investigation"]
-good_words = ["surge", "rally", "gain", "partnership", "bullish", "upgrade", "adoption"]
+ # good_words = ["surge", "rally", "gain", "partnership", "bullish", "upgrade", "adoption"] - relaxing the news filter so trades proceed unless negative words are detected
 
 def call_with_retries(func, attempts=3, base_delay=1, name="request", alert=True):
     """Call a function with retries and exponential backoff."""
@@ -183,10 +183,24 @@ def save_price(symbol, price):
             conn.close()
         except Exception:
             pass
+def update_balance(balance, positions, price_cache):
+    """Recalculate total balance and persist it."""
+    invested = sum(
+        p["qty"] * price_cache.get(sym, 0) for sym, p in positions.items()
+    )
+    total = balance["usdt"] + invested
+    balance["total"] = total
+    save_json(BALANCE_FILE, balance)
+    return total
 
 def trade():
     positions = load_json(POSITION_FILE, {})
-    balance = load_json(BALANCE_FILE, {"usdt": START_BALANCE})
+    balance = load_json(
+        BALANCE_FILE,
+        {"usdt": START_BALANCE, "total": START_BALANCE},
+    )
+    balance.setdefault("usdt", START_BALANCE)
+    balance.setdefault("total", balance["usdt"])
     now = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M')
     # Respect global USE_NEWS_FILTER setting which can be toggled via env var
     global USE_NEWS_FILTER
@@ -202,18 +216,11 @@ def trade():
         print(f"🔍 {symbol} @ ${price:.2f}")
         headlines = get_news_headlines(symbol)
 
-        if any(any(bad in h.lower() for bad in bad_words) for h in headlines):
+        if USE_NEWS_FILTER and any(
+            any(bad in h.lower() for bad in bad_words) for h in headlines
+        ):
             print(f"🚫 {symbol} blocked — negative news detected")
             continue
-
-        if USE_NEWS_FILTER:
-            has_good = any(
-                any(good in h.lower() for good in good_words)
-                for h in headlines
-            )
-            if headlines and not has_good:
-                print(f"🟡 {symbol} skipped — no strong positive news")
-                continue
 
     # Live cap enforcement: only 25% of START_BALANCE can be invested
         current_invested = sum(
@@ -255,7 +262,10 @@ def trade():
             balance["usdt"] -= actual_usdt
             log_trade(symbol, "BUY", qty, price)
 
-            send(f"🟢 BUY {qty} {symbol} at ${price:.2f} — Total: ${actual_usdt:.2f} USDT — {now}")
+            total = update_balance(balance, positions, price_cache)
+            send(
+                f"🟢 BUY {qty} {symbol} at ${price:.2f} — Value: ${actual_usdt:.2f} USDT | Remaining: ${balance['usdt']:.2f} — {now}"
+            )
             print(f"✅ BUY {qty} {symbol} at ${price:.2f} (${actual_usdt:.2f})")
 
         else:
@@ -272,17 +282,19 @@ def trade():
                 del positions[symbol]
                 log_trade(symbol, "CLOSE-LONG", qty, price)
 
-                send(f"✅ CLOSE {symbol} at ${price:.2f} — Profit: ${profit:.2f} USDT (+{pnl:.2f}%) — {now}")
+                 total = update_balance(balance, positions, price_cache)
+                send(
+                    f"✅ CLOSE {symbol} at ${price:.2f} — Profit: ${profit:.2f} USDT (+{pnl:.2f}%) | Balance: ${balance['usdt']:.2f} — {now}"
+                )
                 print(f"✅ CLOSE {symbol} at ${price:.2f} | Profit: ${profit:.2f} USDT (+{pnl:.2f}%)")
+                print(f"   ↳ Balance now ${balance['usdt']:.2f} USDT, Total ${total:.2f}")
 
     # Balance update
-    invested = sum(p["qty"] * price_cache.get(sym, 0) for sym, p in positions.items())
-    total = balance["usdt"] + invested
-    send(f"📊 Updated Balance: ${total:.2f} USDT — {now}")
+    total = update_balance(balance, positions, price_cache)
+    send(f"📊 Updated Balance: ${balance['usdt']:.2f} (Total ${total:.2f}) — {now}")
 
     save_json(POSITION_FILE, positions)
-    save_json(BALANCE_FILE, balance)
-
+    
 
 
 def main():
