@@ -281,7 +281,7 @@ def trade():
                 balance["usdt"] += qty * price
                 del positions[symbol]
                 log_trade(symbol, "CLOSE-LONG", qty, price)
-
+                
                 total = update_balance(balance, positions, price_cache)
                 send(
                     f"✅ CLOSE {symbol} at ${price:.2f} — Profit: ${profit:.2f} USDT (+{pnl:.2f}%) | Balance: ${balance['usdt']:.2f} — {now}"
