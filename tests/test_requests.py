@@ -27,6 +27,7 @@ class TestExternalRequests(unittest.TestCase):
         self.sleep.start()
         requests_mock.reset_mock()
         client_instance.reset_mock()
+        client_instance.get_asset_balance.return_value = {'free': '100'}
 
     def tearDown(self):
         self.sleep.stop()
@@ -49,6 +50,12 @@ class TestExternalRequests(unittest.TestCase):
         headlines = main.get_news_headlines('BTCUSDT')
         self.assertEqual(headlines, ['Good'])
         self.assertEqual(requests_mock.get.call_count, 2)
+    
+    def test_get_usdt_balance_retry(self):
+        client_instance.get_asset_balance.side_effect = [Exception('err'), {'free': '50'}]
+        bal = main.get_usdt_balance()
+        self.assertEqual(bal, 50.0)
+        self.assertEqual(client_instance.get_asset_balance.call_count, 2)
 
 if __name__ == '__main__':
     unittest.main()
