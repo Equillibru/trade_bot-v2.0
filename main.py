@@ -92,6 +92,14 @@ def load_json(path, default):
 def save_json(path, data):
     with open(path, "w") as f:
         json.dump(data, f, indent=2)
+# Get USDT balance from Binance
+def get_usdt_balance():
+    """Fetch available USDT balance from Binance."""
+    def _get():
+        bal = client.get_asset_balance(asset="USDT") or {}
+        return float(bal.get("free", 0))
+
+    return call_with_retries(_get, name="Binance USDT balance") or 0.0
 
 def get_price(symbol):
     def _fetch():
@@ -202,6 +210,8 @@ def trade():
     balance.setdefault("usdt", START_BALANCE)
     balance.setdefault("total", balance["usdt"])
     now = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M')
+    binance_usdt = get_usdt_balance()
+    print(f"💵 Binance USDT balance: ${binance_usdt:.2f}")
     # Respect global USE_NEWS_FILTER setting which can be toggled via env var
     global USE_NEWS_FILTER
 
@@ -291,7 +301,9 @@ def trade():
 
     # Balance update
     total = update_balance(balance, positions, price_cache)
-    send(f"📊 Updated Balance: ${balance['usdt']:.2f} (Total ${total:.2f}) — {now}")
+    send(
+        f"📊 Updated Balance: ${balance['usdt']:.2f} (Total ${total:.2f}) — {now} | Binance USDT: ${binance_usdt:.2f}"
+    )
 
     save_json(POSITION_FILE, positions)
     
