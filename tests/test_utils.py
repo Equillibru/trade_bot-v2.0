@@ -29,6 +29,9 @@ def main_module(monkeypatch):
             pass
         def get_symbol_ticker(self, symbol):
             return {"price": "1"}
+        def get_asset_balance(self, asset):
+            return {"free": "100"}
+            
     client_mod.Client = DummyClient
     binance.client = client_mod
     sys.modules.setdefault("binance", binance)
@@ -177,3 +180,9 @@ def test_balance_persists_after_each_trade(tmp_path, monkeypatch, main_module):
     second_bal = main_module.load_json(bal, {})
     assert second_bal["usdt"] > first_bal["usdt"]
     assert second_bal["total"] == pytest.approx(second_bal["usdt"])  # no open positions
+
+def test_get_usdt_balance(monkeypatch, main_module):
+    monkeypatch.setattr(
+        main_module.client, "get_asset_balance", lambda asset: {"free": "42.0"}
+    )
+    assert main_module.get_usdt_balance() == 42.0
