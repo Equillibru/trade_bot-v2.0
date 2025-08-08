@@ -56,6 +56,12 @@ class TestExternalRequests(unittest.TestCase):
         bal = main.get_usdt_balance()
         self.assertEqual(bal, 50.0)
         self.assertEqual(client_instance.get_asset_balance.call_count, 2)
+        
+    def test_get_usdt_balance_retry(self):
+        client_instance.get_asset_balance.side_effect = [Exception('err'), {'free': '50'}]
+        bal = main.get_usdt_balance()
+        self.assertEqual(bal, 50.0)
+        self.assertEqual(client_instance.get_asset_balance.call_count, 2)
 
 if __name__ == '__main__':
     unittest.main()
