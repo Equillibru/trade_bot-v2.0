@@ -215,12 +215,39 @@ def trade():
     # Respect global USE_NEWS_FILTER setting which can be toggled via env var
     global USE_NEWS_FILTER
 
-    price_cache = {sym: get_price(sym) for sym in set(TRADING_PAIRS) | set(positions.keys())}
+    price_cache = {}
 
     for symbol in TRADING_PAIRS:
-        price = price_cache.get(symbol)
+        price = get_price(symbol)
         if not price or price <= 0:
             print(f"⚠️ {symbol} skipped — invalid price")
+            continue
+
+        price_cache[symbol] = price
+        print(f"🔍 {symbol} @ ${price:.2f}")
+
+        # Always evaluate open positions first using the latest price so
+        # profits are realized even if news headlines are negative.
+        if symbol in positions:
+            pos = positions[symbol]
+            entry = pos["entry"]
+            qty = pos["qty"]
+            pnl = ((price - entry) / entry) * 100
+            profit = (price - entry) * qty
+
+            print(f"📈 {symbol} Entry=${entry:.2f} → Now=${price:.2f} | PnL={pnl:.2f}%")
+
+            if pnl >= 0.5:
+                balance["usdt"] += qty * price
+                del positions[symbol]
+                log_trade(symbol, "CLOSE-LONG", qty, price)
+
+                total = update_balance(balance, positions, price_cache)
+                send(
+                    f"✅ CLOSE {symbol} at ${price:.2f} — Profit: ${profit:.2f} USDT (+{pnl:.2f}%) | Balance: ${balance['usdt']:.2f} — {now}"
+                )
+                print(f"✅ CLOSE {symbol} at ${price:.2f} | Profit: ${profit:.2f} USDT (+{pnl:.2f}%)")
+                print(f"   ↳ Balance now ${balance['usdt']:.2f} USDT, Total ${total:.2f}")
             continue
 
         print(f"🔍 {symbol} @ ${price:.2f}")
@@ -263,41 +290,19 @@ def trade():
             print(f"⚠️ Skipped {symbol} — trade value ${actual_usdt:.4f} outside [0.10, 10.00] range")
             continue
 
-        if symbol not in positions:
-            if actual_usdt > balance["usdt"]:
-                print(f"❌ Skipped {symbol} — insufficient balance for ${actual_usdt:.2f}")
-                continue
+        if actual_usdt > balance["usdt"]:
+            print(f"❌ Skipped {symbol} — insufficient balance for ${actual_usdt:.2f}")
+            continue
 
-            positions[symbol] = {"type": "LONG", "qty": qty, "entry": price}
-            balance["usdt"] -= actual_usdt
-            log_trade(symbol, "BUY", qty, price)
-
-            total = update_balance(balance, positions, price_cache)
-            send(
-                f"🟢 BUY {qty} {symbol} at ${price:.2f} — Value: ${actual_usdt:.2f} USDT | Remaining: ${balance['usdt']:.2f} — {now}"
-            )
-            print(f"✅ BUY {qty} {symbol} at ${price:.2f} (${actual_usdt:.2f})")
-
-        else:
-            pos = positions[symbol]
-            entry = pos["entry"]
-            qty = pos["qty"]
-            pnl = ((price - entry) / entry) * 100
-            profit = (price - entry) * qty
-
-            print(f"📈 {symbol} Entry=${entry:.2f} → Now=${price:.2f} | PnL={pnl:.2f}%")
-
-            if pnl >= 0.5:
-                balance["usdt"] += qty * price
-                del positions[symbol]
-                log_trade(symbol, "CLOSE-LONG", qty, price)
-                
-                total = update_balance(balance, positions, price_cache)
-                send(
-                    f"✅ CLOSE {symbol} at ${price:.2f} — Profit: ${profit:.2f} USDT (+{pnl:.2f}%) | Balance: ${balance['usdt']:.2f} — {now}"
-                )
-                print(f"✅ CLOSE {symbol} at ${price:.2f} | Profit: ${profit:.2f} USDT (+{pnl:.2f}%)")
-                print(f"   ↳ Balance now ${balance['usdt']:.2f} USDT, Total ${total:.2f}")
+        positions[symbol] = {"type": "LONG", "qty": qty, "entry": price}
+        balance["usdt"] -= actual_usdt
+        log_trade(symbol, "BUY", qty, price)
+            
+        total = update_balance(balance, positions, price_cache)
+        send(
+            f"🟢 BUY {qty} {symbol} at ${price:.2f} — Value: ${actual_usdt:.2f} USDT | Remaining: ${balance['usdt']:.2f} — {now}"
+        )
+        print(f"✅ BUY {qty} {symbol} at ${price:.2f} (${actual_usdt:.2f})")  
 
     # Balance update
     total = update_balance(balance, positions, price_cache)
