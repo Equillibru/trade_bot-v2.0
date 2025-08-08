@@ -251,7 +251,7 @@ def trade():
             print(f"❌ Trade amount {trade_usdt:.2f} USDT below minimum — skipping {symbol}")
             continue
             
-        qty = math.floor((trade_usdt / price) * 1e4) / 1e4
+        qty = math.floor((trade_usdt / price) * 1e6) / 1e6
         actual_usdt = qty * price
 
         print(f"🔢 {symbol} → trade_usdt={trade_usdt:.4f}, qty={qty}, value={actual_usdt:.4f}")
