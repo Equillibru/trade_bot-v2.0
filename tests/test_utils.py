@@ -31,6 +31,8 @@ def main_module(monkeypatch):
             return {"price": "1"}
         def get_asset_balance(self, asset):
             return {"free": "100"}
+        def get_asset_balance(self, asset):
+            return {"free": "100"}
             
     client_mod.Client = DummyClient
     binance.client = client_mod
