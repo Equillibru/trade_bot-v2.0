@@ -306,6 +306,7 @@ def trade():
 
         if qty <= 0:
             print(f"❌ Position size too small — skipping {symbol}")
+            continue
 
         if actual_usdt > balance["usdt"]:
             print(f"❌ Skipped {symbol} — insufficient balance for ${actual_usdt:.2f}")
