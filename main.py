@@ -430,4 +430,4 @@ if __name__ == "__main__":
     if args.summary:
         print(json.dumps(wallet_summary(), indent=2))
     else:
-    main()
+        main()
