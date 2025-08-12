@@ -217,7 +217,7 @@ def get_news_headlines(symbol, limit=5):
 
 
 def save_price(symbol, price):
-     """Persist price data with a timestamp into a SQLite database.
+    """Persist price data with a timestamp into a SQLite database.
 
     The database keeps only a rolling window of recent prices for each symbol
     so that moving‑average calculations have sufficient history without the
