@@ -4,7 +4,7 @@ import datetime
 import json
 import sqlite3
 import requests
-import math
+# import math
 from dotenv import load_dotenv
 from binance.client import Client
 from strategies.base import Strategy
@@ -48,6 +48,8 @@ BALANCE_FILE = "balance.json"
 TRADE_LOG_FILE = "trade_log.json"
 MIN_TRADE_USDT = 0.10
 MAX_TRADE_USDT = 10.0
+RISK_PER_TRADE = 0.01  # risk 1% of available balance per trade
+STOP_LOSS_PCT = 0.02   # 2% stop loss below entry
 TRADING_PAIRS = ["BTCUSDT", "ETHUSDT", "XRPUSDT", "SOLUSDT", "DOGEUSDT", "ENAUSDT", "PENGUUSDT", "TRXUSDT", 
                  "ADAUSDT", "PEPEUSDT", "BONKUSDT", "LTCUSDT", "BNBUSDT", "AVAXUSDT", "XLMUSDT", "UNIUSDT", 
                  "CFXUSDT", "AAVEUSDT", "WIFUSDT", "KERNELUSDT", "BCHUSDT", "ARBUSDT", "ENSUSDT", 
@@ -246,6 +248,19 @@ def trade():
 
             print(f"📈 {symbol} Entry=${entry:.2f} → Now=${price:.2f} | PnL={pnl:.2f}%")
 
+            if stop and price <= stop:
+                balance["usdt"] += qty * price
+                del positions[symbol]
+                log_trade(symbol, "STOP-LOSS", qty, price)
+
+                total = update_balance(balance, positions, price_cache)
+                send(
+                    f"🛑 STOP {symbol} at ${price:.2f} — PnL: ${profit:.2f} USDT ({pnl:.2f}%) | Balance: ${balance['usdt']:.2f} — {now}"
+                )
+                print(f"🛑 STOP {symbol} at ${price:.2f} | PnL: ${profit:.2f} USDT ({pnl:.2f}%)")
+                print(f"   ↳ Balance now ${balance['usdt']:.2f} USDT, Total ${total:.2f}")
+                continue
+
             if strategy.should_sell(symbol, pos, price, headlines):
                 balance["usdt"] += qty * price
                 del positions[symbol]
@@ -276,29 +291,27 @@ def trade():
             print(f"🔒 Skipped {symbol} — daily investment cap reached")
             continue
 
-        # Calculate qty (25% of USDT or remaining cap) with min/max bounds
-        trade_usdt = min(balance["usdt"] * 0.25, remaining_allowance, MAX_TRADE_USDT)
-        if trade_usdt < MIN_TRADE_USDT:
-            print(f"❌ Trade amount {trade_usdt:.2f} USDT below minimum — skipping {symbol}")
-            continue
-            
-        qty = math.floor((trade_usdt / price) * 1e6) / 1e6
+        max_trade = min(remaining_allowance, MAX_TRADE_USDT)
+        qty, stop_loss = calculate_position_size(
+            balance["usdt"],
+            price,
+            RISK_PER_TRADE,
+            STOP_LOSS_PCT,
+            MIN_TRADE_USDT,
+            max_trade,
+        )
         actual_usdt = qty * price
+        stop_display = f"{stop_loss:.2f}" if stop_loss is not None else "0.0"
+        print(f"🔢 {symbol} → qty={qty}, value={actual_usdt:.4f}, stop={stop_display}")
 
-        print(f"🔢 {symbol} → trade_usdt={trade_usdt:.4f}, qty={qty}, value={actual_usdt:.4f}")
-
-        if qty <= 0 or actual_usdt < MIN_TRADE_USDT:
-            print(f"❌ Qty for {symbol} is zero or below minimum — skipping")
-            continue
-        if actual_usdt < 0.10 or actual_usdt > 10.00:
-            print(f"⚠️ Skipped {symbol} — trade value ${actual_usdt:.4f} outside [0.10, 10.00] range")
-            continue
+        if qty <= 0:
+            print(f"❌ Position size too small — skipping {symbol}")
 
         if actual_usdt > balance["usdt"]:
             print(f"❌ Skipped {symbol} — insufficient balance for ${actual_usdt:.2f}")
             continue
 
-        positions[symbol] = {"type": "LONG", "qty": qty, "entry": price}
+        positions[symbol] = {"type": "LONG", "qty": qty, "entry": price, "stop_loss": stop_loss}
         balance["usdt"] -= actual_usdt
         log_trade(symbol, "BUY", qty, price)
             
