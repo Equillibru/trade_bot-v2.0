@@ -56,7 +56,8 @@ TRADING_PAIRS = ["BTCUSDT", "ETHUSDT", "XRPUSDT", "SOLUSDT", "DOGEUSDT", "ENAUSD
 
 bad_words = ["lawsuit", "ban", "hack", "crash", "regulation", "investigation"]
  # good_words = ["surge", "rally", "gain", "partnership", "bullish", "upgrade", "adoption"] - relaxing the news filter so trades proceed unless negative words are detected
-STRATEGY_NAME = os.getenv("TRADING_STRATEGY", "ma").lower()
+# Strategy selection via environment variable
+STRATEGY_NAME = os.getenv("STRATEGY_NAME", "ma").lower()
 
 def _init_strategy(name: str) -> Strategy:
     if name == "ma":
@@ -260,6 +261,7 @@ def trade():
 
         # For new positions, defer decision to strategy
         if not strategy.should_buy(symbol, price, headlines):
+            continue
 
     # Live cap enforcement: only 25% of START_BALANCE can be invested
         current_invested = sum(
