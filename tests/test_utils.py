@@ -188,3 +188,29 @@ def test_get_usdt_balance(monkeypatch, main_module):
         main_module.client, "get_asset_balance", lambda asset: {"free": "42.0"}
     )
     assert main_module.get_usdt_balance() == 42.0
+
+def test_trade_skips_when_position_size_zero(tmp_path, monkeypatch, main_module):
+    pos = tmp_path / "positions.json"
+    bal = tmp_path / "balance.json"
+    log = tmp_path / "trade_log.json"
+
+    monkeypatch.setattr(main_module, "POSITION_FILE", pos)
+    monkeypatch.setattr(main_module, "BALANCE_FILE", bal)
+    monkeypatch.setattr(main_module, "TRADE_LOG_FILE", log)
+    monkeypatch.setattr(main_module, "TRADING_PAIRS", ["BTCUSDT"])
+
+    monkeypatch.setattr(main_module, "get_price", lambda s: 10000.0)
+    monkeypatch.setattr(main_module, "get_news_headlines", lambda s: ["rally"])
+    monkeypatch.setattr(
+        main_module,
+        "calculate_position_size",
+        lambda *a, **k: (0.0, None),
+    )
+    monkeypatch.setattr(main_module, "send", lambda msg: None)
+
+    main_module.trade()
+
+    positions = main_module.load_json(pos, {})
+    assert "BTCUSDT" not in positions
+    log_data = main_module.load_json(log, [])
+    assert not any(entry["type"] == "BUY" for entry in log_data)
