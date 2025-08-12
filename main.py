@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from binance.client import Client
 from strategies.base import Strategy
 from strategies.ma import MovingAverageCrossStrategy
+from risk import calculate_position_size
 
 def _require_env_vars(names):
     """Ensure required environment variables are present."""
@@ -238,6 +239,7 @@ def trade():
             pos = positions[symbol]
             entry = pos["entry"]
             qty = pos["qty"]
+            stop = pos.get("stop_loss")
             pnl = ((price - entry) / entry) * 100
             profit = (price - entry) * qty
 
