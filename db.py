@@ -68,7 +68,7 @@ def update_trade_pnl(trade_id: int, pnl_usdt: float, pnl_pct: float) -> None:
             SET profit = ?, pnl_usdt = ?, pnl_pct = ?
             WHERE id = ?
             """,
-            (pnl_pct, pnl_usdt, pnl_pct, trade_id),
+            (pnl_usdt, pnl_usdt, pnl_pct, trade_id),
         )
 
 
