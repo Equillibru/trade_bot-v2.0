@@ -1,0 +1,50 @@
+import importlib
+import json
+import sys
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+REQUIRED = [
+    'TELEGRAM_TOKEN',
+    'TELEGRAM_CHAT_ID',
+    'BINANCE_API_KEY',
+    'BINANCE_SECRET_KEY',
+    'NEWSAPI_KEY',
+]
+
+def load_main(monkeypatch):
+    for var in REQUIRED:
+        monkeypatch.setenv(var, 'x')
+    if 'main' in sys.modules:
+        del sys.modules['main']
+    return importlib.import_module('main')
+
+
+def test_wallet_summary(monkeypatch, tmp_path):
+    main = load_main(monkeypatch)
+
+    balance_data = {'usdt': 150.0, 'start_balance': 100.0}
+    balance_file = tmp_path / 'balance.json'
+    balance_file.write_text(json.dumps(balance_data))
+
+    positions = {
+        'BTCUSDT': {'qty': 0.01, 'entry': 30000.0},
+        'ETHUSDT': {'qty': 0.5, 'entry': 2000.0},
+    }
+
+    monkeypatch.setattr(main.db, 'get_open_positions', lambda: positions)
+
+    summary = main.wallet_summary(balance_path=str(balance_file))
+
+    assert summary['start_balance'] == balance_data['start_balance']
+    assert summary['current_balance'] == balance_data['usdt']
+    expected_positions = [
+        {'symbol': 'BTCUSDT', 'qty': 0.01, 'entry': 30000.0},
+        {'symbol': 'ETHUSDT', 'qty': 0.5, 'entry': 2000.0},
+    ]
+    for pos in expected_positions:
+        assert pos in summary['positions']
