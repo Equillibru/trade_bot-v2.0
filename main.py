@@ -371,6 +371,8 @@ def trade():
             print(f"📈 {symbol} Entry=${entry:.2f} → Now=${price:.2f} | PnL={pnl:.2f}%")
 
             if stop and price <= stop:
+                order_info = place_order(symbol, "sell", qty)
+                print(f"   ↳ order: {order_info}")
                 balance["usdt"] += qty * price
                 trade_id = pos.get("trade_id")
                 db.update_trade_pnl(trade_id, profit, profit, pnl)
@@ -386,6 +388,8 @@ def trade():
                 continue
 
             if strategy.should_sell(symbol, pos, price, headlines):
+                order_info = place_order(symbol, "sell", qty)
+                print(f"   ↳ order: {order_info}")
                 balance["usdt"] += qty * price
                 trade_id = pos.get("trade_id")
                 db.update_trade_pnl(trade_id, profit, profit, pnl)
@@ -441,6 +445,9 @@ def trade():
         if actual_usdt > balance["usdt"]:
             print(f"❌ Skipped {symbol} — insufficient balance for ${actual_usdt:.2f}")
             continue
+
+        order_info = place_order(symbol, "buy", qty)
+        print(f"   ↳ order: {order_info}")
 
         trade_id = db.log_trade(symbol, "BUY", qty, price)
         db.upsert_position(symbol, qty, price, stop_loss, trade_id)
