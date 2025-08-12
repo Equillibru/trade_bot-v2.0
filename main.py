@@ -217,7 +217,12 @@ def get_news_headlines(symbol, limit=5):
 
 
 def save_price(symbol, price):
-    """Persist price data with a timestamp into a SQLite database."""
+     """Persist price data with a timestamp into a SQLite database.
+
+    The database keeps only a rolling window of recent prices for each symbol
+    so that moving‑average calculations have sufficient history without the
+    table growing indefinitely.
+    """
     try:
         conn = sqlite3.connect("prices.db")
         cur = conn.cursor()
@@ -231,6 +236,22 @@ def save_price(symbol, price):
             "INSERT INTO prices (timestamp, symbol, price) VALUES (?, ?, ?)",
             (timestamp, symbol, price),
         )
+
+        # keep a limited number of rows per symbol
+        max_window = getattr(strategy, "long_window", 0)
+        history_cap = max(max_window, getattr(strategy, "short_window", 0)) * 10 or 100
+        cur.execute(
+            """
+            DELETE FROM prices
+            WHERE symbol = ? AND rowid NOT IN (
+                SELECT rowid FROM prices
+                WHERE symbol = ?
+                ORDER BY timestamp DESC, rowid DESC
+                LIMIT ?
+            )
+            """,
+            (symbol, symbol, history_cap),
+        )
         conn.commit()
     except Exception as e:
         print(f"Price save error: {e}")
@@ -239,6 +260,43 @@ def save_price(symbol, price):
             conn.close()
         except Exception:
             pass
+
+def load_prices(symbol: str, limit: int):
+    """Load the most recent ``limit`` prices for ``symbol`` from ``prices.db``."""
+    try:
+        conn = sqlite3.connect("prices.db")
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT price FROM prices
+            WHERE symbol = ?
+            ORDER BY timestamp DESC, rowid DESC
+            LIMIT ?
+            """,
+            (symbol, limit),
+        )
+        rows = [r[0] for r in cur.fetchall()]
+        return list(reversed(rows))
+    except Exception as e:
+        print(f"Price load error: {e}")
+        return []
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+def preload_history():
+    """Populate the strategy's in-memory history from stored prices."""
+    history_limit = max(
+        getattr(strategy, "short_window", 0), getattr(strategy, "long_window", 0)
+    )
+    for sym in TRADING_PAIRS:
+        prices = load_prices(sym, history_limit)
+        if prices:
+            strategy.history[sym] = prices
+            
 def update_balance(balance, positions, price_cache):
     """Recalculate total balance and persist it."""
     invested = sum(
@@ -289,6 +347,7 @@ def trade():
     print(f"💵 Binance USDT balance: ${binance_usdt:.2f}")
     
     price_cache = {}
+    preload_history()
 
     for symbol in TRADING_PAIRS:
         price = get_price(symbol)
