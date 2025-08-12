@@ -18,10 +18,12 @@ class MovingAverageCrossStrategy(Strategy):
         self,
         short_window: int = 3,
         long_window: int = 5,
+        profit_target_pct: float = 1.0,
         bad_words: Sequence[str] | None = None,
     ) -> None:
         self.short_window = short_window
         self.long_window = long_window
+        self.profit_target_pct = profit_target_pct
         self.history: Dict[str, List[float]] = {}
         self.bad_words = [w.lower() for w in (bad_words or [])]
 
@@ -63,7 +65,7 @@ class MovingAverageCrossStrategy(Strategy):
         entry = position.get("entry")
         if entry:
             pnl_pct = ((price - entry) / entry) * 100
-            if pnl_pct >= 0.5:  # take quick profits
+            if pnl_pct >= self.profit_target_pct:  # take profits
                 return True
 
         if len(prices) < self.long_window:
