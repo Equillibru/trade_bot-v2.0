@@ -59,7 +59,24 @@ def log_trade(symbol: str, side: str, qty: float, price: float) -> int:
         return cur.lastrowid
 
 
-def update_trade_pnl(trade_id: int, pnl_usdt: float, pnl_pct: float) -> None:
+def update_trade_pnl(
+    trade_id: int, profit: float, pnl_usdt: float, pnl_pct: float
+) -> None:
+    """Persist the PnL details for a trade.
+
+    Parameters
+    ----------
+    trade_id: int
+        Identifier of the trade to update.
+    profit: float
+        Profit expressed in the asset's quote currency.
+    pnl_usdt: float
+        Profit converted to USDT. This can differ from ``profit`` if the
+        quote currency isn't USDT.
+    pnl_pct: float
+        Profit and loss percentage.
+    """
+
     with get_conn() as conn:
         cur = conn.cursor()
         cur.execute(
@@ -68,7 +85,7 @@ def update_trade_pnl(trade_id: int, pnl_usdt: float, pnl_pct: float) -> None:
             SET profit = ?, pnl_usdt = ?, pnl_pct = ?
             WHERE id = ?
             """,
-            (pnl_usdt, pnl_usdt, pnl_pct, trade_id),
+            (profit, pnl_usdt, pnl_pct, trade_id),
         )
 
 
