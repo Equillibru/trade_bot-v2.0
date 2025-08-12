@@ -7,6 +7,8 @@ import requests
 import math
 from dotenv import load_dotenv
 from binance.client import Client
+from strategies.base import Strategy
+from strategies.ma import MovingAverageCrossStrategy
 
 def _require_env_vars(names):
     """Ensure required environment variables are present."""
@@ -38,8 +40,6 @@ NEWSAPI_KEY = os.getenv("NEWSAPI_KEY")
 client = Client(BINANCE_KEY, BINANCE_SECRET)
 
 LIVE_MODE = False
-# Toggle news-based trading filter via env var (default: True)
-USE_NEWS_FILTER = os.getenv("USE_NEWS_FILTER", "True").lower() == "true"
 START_BALANCE = 100.32  # Example starting balance
 DAILY_MAX_INVEST = START_BALANCE * 0.20
 POSITION_FILE = "positions.json"
@@ -55,7 +55,15 @@ TRADING_PAIRS = ["BTCUSDT", "ETHUSDT", "XRPUSDT", "SOLUSDT", "DOGEUSDT", "ENAUSD
 
 bad_words = ["lawsuit", "ban", "hack", "crash", "regulation", "investigation"]
  # good_words = ["surge", "rally", "gain", "partnership", "bullish", "upgrade", "adoption"] - relaxing the news filter so trades proceed unless negative words are detected
+STRATEGY_NAME = os.getenv("TRADING_STRATEGY", "ma").lower()
 
+def _init_strategy(name: str) -> Strategy:
+    if name == "ma":
+        return MovingAverageCrossStrategy(bad_words=bad_words)
+    raise ValueError(f"Unknown strategy '{name}'")
+
+
+strategy: Strategy = _init_strategy(STRATEGY_NAME)
 def call_with_retries(func, attempts=3, base_delay=1, name="request", alert=True):
     """Call a function with retries and exponential backoff."""
     for i in range(attempts):
@@ -212,9 +220,7 @@ def trade():
     now = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M')
     binance_usdt = get_usdt_balance()
     print(f"💵 Binance USDT balance: ${binance_usdt:.2f}")
-    # Respect global USE_NEWS_FILTER setting which can be toggled via env var
-    global USE_NEWS_FILTER
-
+    
     price_cache = {}
 
     for symbol in TRADING_PAIRS:
@@ -225,9 +231,9 @@ def trade():
 
         price_cache[symbol] = price
         print(f"🔍 {symbol} @ ${price:.2f}")
+        headlines = get_news_headlines(symbol)
 
-        # Always evaluate open positions first using the latest price so
-        # profits are realized even if news headlines are negative.
+        # Check existing positions first using strategy rules
         if symbol in positions:
             pos = positions[symbol]
             entry = pos["entry"]
@@ -237,7 +243,7 @@ def trade():
 
             print(f"📈 {symbol} Entry=${entry:.2f} → Now=${price:.2f} | PnL={pnl:.2f}%")
 
-            if pnl >= 0.5:
+            if strategy.should_sell(symbol, pos, price, headlines):
                 balance["usdt"] += qty * price
                 del positions[symbol]
                 log_trade(symbol, "CLOSE-LONG", qty, price)
@@ -250,14 +256,8 @@ def trade():
                 print(f"   ↳ Balance now ${balance['usdt']:.2f} USDT, Total ${total:.2f}")
             continue
 
-        print(f"🔍 {symbol} @ ${price:.2f}")
-        headlines = get_news_headlines(symbol)
-
-        if USE_NEWS_FILTER and any(
-            any(bad in h.lower() for bad in bad_words) for h in headlines
-        ):
-            print(f"🚫 {symbol} blocked — negative news detected")
-            continue
+        # For new positions, defer decision to strategy
+        if not strategy.should_buy(symbol, price, headlines):
 
     # Live cap enforcement: only 25% of START_BALANCE can be invested
         current_invested = sum(
