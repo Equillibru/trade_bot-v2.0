@@ -10,7 +10,7 @@ def calculate_position_size(
     price: float,
     risk_pct: float = 0.01,
     stop_pct: float = 0.02,
-    min_trade: float = 0.10,
+    min_trade: float = 1.0,
     max_trade: float = 10.0,
 ):
     """Compute position size and stop loss based on risk parameters.
@@ -47,12 +47,10 @@ def calculate_position_size(
 
     qty = math.floor((trade_value / price) * 1e6) / 1e6
 
-    # After rounding the quantity to the supported precision it's possible
-    # that it becomes zero even though the trade value satisfied the minimum
-    # notional check above (e.g. very high priced assets). In such cases the
-    # caller should treat the trade as invalid, so we also drop the stop loss
-    # information by returning ``None``.
-    if qty <= 0:
+    # Recompute the trade value using the rounded quantity. If the notional
+    # now falls below the minimum threshold we reject the trade entirely.
+    trade_value = qty * price
+    if trade_value < min_trade or qty <= 0:
         return 0.0, None
 
     return qty, stop_loss
