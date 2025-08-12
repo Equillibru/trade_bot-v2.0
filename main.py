@@ -3,6 +3,7 @@ import time
 import datetime
 import json
 import sqlite3
+import argparse
 import db
 import requests
 # import math
@@ -111,6 +112,39 @@ def load_json(path, default):
 def save_json(path, data):
     with open(path, "w") as f:
         json.dump(data, f, indent=2)
+
+def wallet_summary(balance_path: str = BALANCE_FILE):
+    """Return a snapshot of balances and open positions.
+
+    Parameters
+    ----------
+    balance_path: str
+        Path to the balance JSON file.
+
+    Returns
+    -------
+    dict
+        Dictionary with starting balance, current balance and a list of
+        positions containing symbol, quantity and entry price.
+    """
+    data = load_json(balance_path, {"usdt": START_BALANCE, "start_balance": START_BALANCE})
+    start_bal = data.get("start_balance", START_BALANCE)
+    current_bal = data.get("usdt", start_bal)
+
+    positions = db.get_open_positions()
+    pos_list = [
+        {"symbol": sym, "qty": info["qty"], "entry": info["entry"]}
+        for sym, info in positions.items()
+    ]
+
+    summary = {
+        "start_balance": start_bal,
+        "current_balance": current_bal,
+        "positions": pos_list,
+    }
+
+    return summary
+
 # Get USDT balance from Binance
 def get_usdt_balance():
     """Fetch available USDT balance from Binance."""
@@ -388,4 +422,12 @@ def main():
         time.sleep(300)
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Trading bot")
+    parser.add_argument(
+        "--summary", action="store_true", help="Show wallet summary and exit"
+    )
+    args = parser.parse_args()
+    if args.summary:
+        print(json.dumps(wallet_summary(), indent=2))
+    else:
     main()
