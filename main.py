@@ -47,7 +47,7 @@ DAILY_MAX_INVEST = START_BALANCE * 0.20
 
 BALANCE_FILE = "balance.json"
 
-MIN_TRADE_USDT = 0.10
+MIN_TRADE_USDT = 1.0
 MAX_TRADE_USDT = 10.0
 RISK_PER_TRADE = 0.01  # risk 1% of available balance per trade
 STOP_LOSS_PCT = 0.02   # 2% stop loss below entry
@@ -334,12 +334,16 @@ def trade():
             max_trade,
         )
         actual_usdt = qty * price
-        stop_display = f"{stop_loss:.2f}" if stop_loss is not None else "0.0"
-        print(f"🔢 {symbol} → qty={qty}, value={actual_usdt:.4f}, stop={stop_display}")
-
+        
         if qty <= 0:
             print(f"❌ Position size too small — skipping {symbol}")
             continue
+
+        if actual_usdt < MIN_TRADE_USDT:
+            print(f"❌ Skipped {symbol} — trade value ${actual_usdt:.2f} below minimum")
+            continue
+        stop_display = f"{stop_loss:.2f}" if stop_loss is not None else "0.0"
+        print(f"🔢 {symbol} → qty={qty}, value={actual_usdt:.4f}, stop={stop_display}")
 
         if actual_usdt > balance["usdt"]:
             print(f"❌ Skipped {symbol} — insufficient balance for ${actual_usdt:.2f}")
