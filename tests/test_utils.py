@@ -8,7 +8,7 @@ import pytest
 # --- Fixtures ---------------------------------------------------------------
 
 @pytest.fixture
-def main_module(monkeypatch):
+def main_module(monkeypatch, tmp_path):
     """Import the main module with external dependencies mocked."""
     # Stub requests
     req = types.ModuleType("requests")
@@ -39,6 +39,10 @@ def main_module(monkeypatch):
     sys.modules.setdefault("binance", binance)
     sys.modules.setdefault("binance.client", client_mod)
 
+    monkeypatch.setenv("TRADE_DB_FILE", str(tmp_path / "trades.db"))
+    sys.path.append(str(Path(__file__).resolve().parent.parent))
+    import db
+    importlib.reload(db)
     module = importlib.import_module("main")
     importlib.reload(module)
     return module
@@ -59,22 +63,18 @@ def test_load_and_save_json(tmp_path, main_module):
     assert main_module.load_json(path, {}) == new_data
 
 
-def test_log_trade(tmp_path, monkeypatch, main_module):
-    log_path = tmp_path / "log.json"
-    monkeypatch.setattr(main_module, "TRADE_LOG_FILE", log_path)
-    main_module.log_trade("BTCUSDT", "BUY", 1.0, 100)
-    log = main_module.load_json(log_path, [])
-    assert log and log[0]["symbol"] == "BTCUSDT"
+def test_log_trade(main_module):
+    trade_id = main_module.db.log_trade("BTCUSDT", "BUY", 1.0, 100)
+    hist = main_module.db.get_trade_history("BTCUSDT")
+    assert hist and hist[0]["id"] == trade_id
 
 
 def test_trade_buy_logic(tmp_path, monkeypatch, main_module):
-    pos = tmp_path / "positions.json"
+    
     bal = tmp_path / "balance.json"
-    log = tmp_path / "trade_log.json"
-
-    monkeypatch.setattr(main_module, "POSITION_FILE", pos)
+    
     monkeypatch.setattr(main_module, "BALANCE_FILE", bal)
-    monkeypatch.setattr(main_module, "TRADE_LOG_FILE", log)
+    
     monkeypatch.setattr(main_module, "TRADING_PAIRS", ["BTCUSDT"])
 
     # Stub helpers
@@ -85,20 +85,18 @@ def test_trade_buy_logic(tmp_path, monkeypatch, main_module):
 
     main_module.trade()
 
-    positions = main_module.load_json(pos, {})
+    positions = main_module.db.get_open_positions()
     assert "BTCUSDT" in positions
-    log_data = main_module.load_json(log, [])
-    assert any(entry["type"] == "BUY" for entry in log_data)
+    trades = main_module.db.get_trade_history("BTCUSDT")
+    assert any(entry["side"] == "BUY" for entry in trades)
     assert sent  # a telegram message was "sent"
 
 def test_trade_with_no_headlines(tmp_path, monkeypatch, main_module):
-    pos = tmp_path / "positions.json"
+    
     bal = tmp_path / "balance.json"
-    log = tmp_path / "trade_log.json"
-
-    monkeypatch.setattr(main_module, "POSITION_FILE", pos)
+    
     monkeypatch.setattr(main_module, "BALANCE_FILE", bal)
-    monkeypatch.setattr(main_module, "TRADE_LOG_FILE", log)
+    
     monkeypatch.setattr(main_module, "TRADING_PAIRS", ["BTCUSDT"])
 
     monkeypatch.setattr(main_module, "get_price", lambda s: 10000.0)
@@ -107,18 +105,16 @@ def test_trade_with_no_headlines(tmp_path, monkeypatch, main_module):
 
     main_module.trade()
 
-    positions = main_module.load_json(pos, {})
+    positions = main_module.db.get_open_positions()
     assert "BTCUSDT" in positions
 
 
 def test_trade_with_neutral_headlines(tmp_path, monkeypatch, main_module):
-    pos = tmp_path / "positions.json"
+    
     bal = tmp_path / "balance.json"
-    log = tmp_path / "trade_log.json"
-
-    monkeypatch.setattr(main_module, "POSITION_FILE", pos)
+   
     monkeypatch.setattr(main_module, "BALANCE_FILE", bal)
-    monkeypatch.setattr(main_module, "TRADE_LOG_FILE", log)
+    
     monkeypatch.setattr(main_module, "TRADING_PAIRS", ["BTCUSDT"])
 
     monkeypatch.setattr(main_module, "get_price", lambda s: 10000.0)
@@ -131,18 +127,16 @@ def test_trade_with_neutral_headlines(tmp_path, monkeypatch, main_module):
 
     main_module.trade()
 
-    positions = main_module.load_json(pos, {})
+    positions = main_module.db.get_open_positions()
     assert "BTCUSDT" in positions
 
 
 def test_balance_total_updates(tmp_path, monkeypatch, main_module):
-    pos = tmp_path / "positions.json"
+    
     bal = tmp_path / "balance.json"
-    log = tmp_path / "trade_log.json"
-
-    monkeypatch.setattr(main_module, "POSITION_FILE", pos)
+    
     monkeypatch.setattr(main_module, "BALANCE_FILE", bal)
-    monkeypatch.setattr(main_module, "TRADE_LOG_FILE", log)
+    
     monkeypatch.setattr(main_module, "TRADING_PAIRS", ["BTCUSDT"])
 
     prices = [10000.0, 11000.0]
@@ -156,16 +150,15 @@ def test_balance_total_updates(tmp_path, monkeypatch, main_module):
     balance = main_module.load_json(bal, {})
     assert balance["usdt"] > main_module.START_BALANCE
     assert balance["total"] == pytest.approx(balance["usdt"])  # no open positions
+    assert main_module.db.get_open_positions() == {}
 
 
 def test_balance_persists_after_each_trade(tmp_path, monkeypatch, main_module):
-    pos = tmp_path / "positions.json"
+    
     bal = tmp_path / "balance.json"
-    log = tmp_path / "trade_log.json"
-
-    monkeypatch.setattr(main_module, "POSITION_FILE", pos)
+    
     monkeypatch.setattr(main_module, "BALANCE_FILE", bal)
-    monkeypatch.setattr(main_module, "TRADE_LOG_FILE", log)
+    
     monkeypatch.setattr(main_module, "TRADING_PAIRS", ["BTCUSDT"])
 
     prices = [10000.0, 11000.0]
@@ -182,6 +175,7 @@ def test_balance_persists_after_each_trade(tmp_path, monkeypatch, main_module):
     second_bal = main_module.load_json(bal, {})
     assert second_bal["usdt"] > first_bal["usdt"]
     assert second_bal["total"] == pytest.approx(second_bal["usdt"])  # no open positions
+    assert main_module.db.get_open_positions() == {}
 
 def test_get_usdt_balance(monkeypatch, main_module):
     monkeypatch.setattr(
@@ -190,13 +184,11 @@ def test_get_usdt_balance(monkeypatch, main_module):
     assert main_module.get_usdt_balance() == 42.0
 
 def test_trade_skips_when_position_size_zero(tmp_path, monkeypatch, main_module):
-    pos = tmp_path / "positions.json"
+    
     bal = tmp_path / "balance.json"
-    log = tmp_path / "trade_log.json"
-
-    monkeypatch.setattr(main_module, "POSITION_FILE", pos)
+    
     monkeypatch.setattr(main_module, "BALANCE_FILE", bal)
-    monkeypatch.setattr(main_module, "TRADE_LOG_FILE", log)
+    
     monkeypatch.setattr(main_module, "TRADING_PAIRS", ["BTCUSDT"])
 
     monkeypatch.setattr(main_module, "get_price", lambda s: 10000.0)
@@ -210,7 +202,7 @@ def test_trade_skips_when_position_size_zero(tmp_path, monkeypatch, main_module)
 
     main_module.trade()
 
-    positions = main_module.load_json(pos, {})
+    positions = main_module.db.get_open_positions()
     assert "BTCUSDT" not in positions
-    log_data = main_module.load_json(log, [])
-    assert not any(entry["type"] == "BUY" for entry in log_data)
+    trades = main_module.db.get_trade_history("BTCUSDT")
+    assert not trades
