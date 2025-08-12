@@ -3,6 +3,7 @@ import time
 import datetime
 import json
 import sqlite3
+import db
 import requests
 # import math
 from dotenv import load_dotenv
@@ -43,9 +44,9 @@ client = Client(BINANCE_KEY, BINANCE_SECRET)
 LIVE_MODE = False
 START_BALANCE = 100.32  # Example starting balance
 DAILY_MAX_INVEST = START_BALANCE * 0.20
-POSITION_FILE = "positions.json"
+
 BALANCE_FILE = "balance.json"
-TRADE_LOG_FILE = "trade_log.json"
+
 MIN_TRADE_USDT = 0.10
 MAX_TRADE_USDT = 10.0
 RISK_PER_TRADE = 0.01  # risk 1% of available balance per trade
@@ -60,14 +61,20 @@ bad_words = ["lawsuit", "ban", "hack", "crash", "regulation", "investigation"]
  # good_words = ["surge", "rally", "gain", "partnership", "bullish", "upgrade", "adoption"] - relaxing the news filter so trades proceed unless negative words are detected
 # Strategy selection via environment variable
 STRATEGY_NAME = os.getenv("STRATEGY_NAME", "ma").lower()
+PROFIT_TARGET_PCT = float(os.getenv("PROFIT_TARGET_PCT", "1.0"))
 
 def _init_strategy(name: str) -> Strategy:
     if name == "ma":
-        return MovingAverageCrossStrategy(bad_words=bad_words)
+        return MovingAverageCrossStrategy(
+            bad_words=bad_words, profit_target_pct=PROFIT_TARGET_PCT
+        )
     raise ValueError(f"Unknown strategy '{name}'")
 
 
 strategy: Strategy = _init_strategy(STRATEGY_NAME)
+# Initialise database
+db.init_db()
+
 def call_with_retries(func, attempts=3, base_delay=1, name="request", alert=True):
     """Call a function with retries and exponential backoff."""
     for i in range(attempts):
@@ -174,11 +181,6 @@ def get_news_headlines(symbol, limit=5):
     data = call_with_retries(_get, name=f"NewsAPI {symbol}") or {}
     return [a["title"] for a in data.get("articles", []) if "title" in a]
 
-def log_trade(symbol, typ, qty, price):
-    log = load_json(TRADE_LOG_FILE, [])
-    timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-    log.append({"symbol": symbol, "type": typ, "qty": qty, "price": price, "timestamp": timestamp})
-    save_json(TRADE_LOG_FILE, log)
 
 def save_price(symbol, price):
     """Persist price data with a timestamp into a SQLite database."""
@@ -213,8 +215,35 @@ def update_balance(balance, positions, price_cache):
     save_json(BALANCE_FILE, balance)
     return total
 
+def sync_positions_with_exchange():
+    """Reconcile database positions with live exchange holdings."""
+    db_positions = db.get_open_positions()
+    try:
+        account = client.get_account()
+        balances = {
+            b["asset"]: float(b.get("free", 0)) + float(b.get("locked", 0))
+            for b in account.get("balances", [])
+        }
+    except Exception as e:
+        print(f"Position sync failed: {e}")
+        return db_positions
+
+    for symbol, pos in list(db_positions.items()):
+        asset = symbol.replace("USDT", "")
+        exch_qty = balances.get(asset, 0.0)
+        if abs(exch_qty - pos["qty"]) > 1e-6:
+            if exch_qty <= 0:
+                db.remove_position(symbol)
+                del db_positions[symbol]
+            else:
+                db.upsert_position(
+                    symbol, exch_qty, pos["entry"], pos.get("stop_loss"), pos["trade_id"]
+                )
+                db_positions[symbol]["qty"] = exch_qty
+    return db_positions
+
 def trade():
-    positions = load_json(POSITION_FILE, {})
+    positions = db.get_open_positions()
     balance = load_json(
         BALANCE_FILE,
         {"usdt": START_BALANCE, "total": START_BALANCE},
@@ -250,9 +279,11 @@ def trade():
 
             if stop and price <= stop:
                 balance["usdt"] += qty * price
+                trade_id = pos.get("trade_id")
+                db.update_trade_pnl(trade_id, profit, pnl)
+                db.remove_position(symbol)
                 del positions[symbol]
-                log_trade(symbol, "STOP-LOSS", qty, price)
-
+                
                 total = update_balance(balance, positions, price_cache)
                 send(
                     f"🛑 STOP {symbol} at ${price:.2f} — PnL: ${profit:.2f} USDT ({pnl:.2f}%) | Balance: ${balance['usdt']:.2f} — {now}"
@@ -263,9 +294,11 @@ def trade():
 
             if strategy.should_sell(symbol, pos, price, headlines):
                 balance["usdt"] += qty * price
+                trade_id = pos.get("trade_id")
+                db.update_trade_pnl(trade_id, profit, pnl)
+                db.remove_position(symbol)
                 del positions[symbol]
-                log_trade(symbol, "CLOSE-LONG", qty, price)
-
+                
                 total = update_balance(balance, positions, price_cache)
                 send(
                     f"✅ CLOSE {symbol} at ${price:.2f} — Profit: ${profit:.2f} USDT (+{pnl:.2f}%) | Balance: ${balance['usdt']:.2f} — {now}"
@@ -312,10 +345,17 @@ def trade():
             print(f"❌ Skipped {symbol} — insufficient balance for ${actual_usdt:.2f}")
             continue
 
-        positions[symbol] = {"type": "LONG", "qty": qty, "entry": price, "stop_loss": stop_loss}
+        trade_id = db.log_trade(symbol, "BUY", qty, price)
+        db.upsert_position(symbol, qty, price, stop_loss, trade_id)
+        positions[symbol] = {
+            "type": "LONG",
+            "qty": qty,
+            "entry": price,
+            "stop_loss": stop_loss,
+            "trade_id": trade_id,
+        }
         balance["usdt"] -= actual_usdt
-        log_trade(symbol, "BUY", qty, price)
-            
+                    
         total = update_balance(balance, positions, price_cache)
         send(
             f"🟢 BUY {qty} {symbol} at ${price:.2f} — Value: ${actual_usdt:.2f} USDT | Remaining: ${balance['usdt']:.2f} — {now}"
@@ -328,13 +368,13 @@ def trade():
         f"📊 Updated Balance: ${balance['usdt']:.2f} (Total ${total:.2f}) — {now} | Binance USDT: ${binance_usdt:.2f}"
     )
 
-    save_json(POSITION_FILE, positions)
-    
-
+    avg = db.average_profit_last_n_trades(10)
+    print(f"📈 Avg profit last 10 trades: {avg:.2f}%")
 
 def main():
     print("🤖 Trading bot started.")
     send("🤖 Trading bot is live.")
+    sync_positions_with_exchange()
     while True:
         try:
             trade()
