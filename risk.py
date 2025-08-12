@@ -46,4 +46,13 @@ def calculate_position_size(
         return 0.0, None
 
     qty = math.floor((trade_value / price) * 1e6) / 1e6
+
+    # After rounding the quantity to the supported precision it's possible
+    # that it becomes zero even though the trade value satisfied the minimum
+    # notional check above (e.g. very high priced assets). In such cases the
+    # caller should treat the trade as invalid, so we also drop the stop loss
+    # information by returning ``None``.
+    if qty <= 0:
+        return 0.0, None
+
     return qty, stop_loss
