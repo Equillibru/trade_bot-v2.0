@@ -314,7 +314,7 @@ def trade():
             if stop and price <= stop:
                 balance["usdt"] += qty * price
                 trade_id = pos.get("trade_id")
-                db.update_trade_pnl(trade_id, profit, pnl)
+                db.update_trade_pnl(trade_id, profit, profit, pnl)
                 db.remove_position(symbol)
                 del positions[symbol]
                 
@@ -329,7 +329,7 @@ def trade():
             if strategy.should_sell(symbol, pos, price, headlines):
                 balance["usdt"] += qty * price
                 trade_id = pos.get("trade_id")
-                db.update_trade_pnl(trade_id, profit, pnl)
+                db.update_trade_pnl(trade_id, profit, profit, pnl)
                 db.remove_position(symbol)
                 del positions[symbol]
                 
