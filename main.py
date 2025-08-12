@@ -408,7 +408,7 @@ def trade():
         if not strategy.should_buy(symbol, price, headlines):
             continue
 
-    # Live cap enforcement: only 25% of START_BALANCE can be invested
+        # Live cap enforcement: only 25% of START_BALANCE can be invested
         current_invested = sum(
             p["qty"] * price_cache.get(sym, 0) for sym, p in positions.items()
         )
