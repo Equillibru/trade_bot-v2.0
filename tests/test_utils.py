@@ -45,8 +45,7 @@ def main_module(monkeypatch, tmp_path):
     importlib.reload(db)
     module = importlib.import_module("main")
     importlib.reload(module)
-    monkeypatch.setattr(module.price_stream, "start_stream", lambda *a, **k: None)
-    monkeypatch.setattr(module.price_stream, "get_latest_price", lambda s: None)
+  
     return module
 
 # --- Tests -----------------------------------------------------------------
