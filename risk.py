@@ -35,7 +35,12 @@ def calculate_position_size(
         stop_loss: price at which to exit the trade
         reason:   debug message when qty is zero
     """
-    if balance_usdt <= 0 or price <= 0 or stop_pct <= 0:
+    if balance_usdt <= 0:
+        msg = "balance is zero"
+        logger.debug(msg)
+        return 0.0, None, msg
+
+    if price <= 0 or stop_pct <= 0:
         msg = (
             f"invalid inputs (balance={balance_usdt}, price={price}, stop_pct={stop_pct})"
         )
@@ -45,7 +50,7 @@ def calculate_position_size(
     risk_amount = balance_usdt * risk_pct
     if risk_amount < min_trade:
         msg = (
-            f"invalid inputs (balance={balance_usdt}, price={price}, stop_pct={stop_pct})"
+            f"risk amount ${risk_amount:.2f} below minimum trade ${min_trade:.2f}"
         )
         logger.debug(msg)
         return 0.0, None, None
@@ -57,7 +62,7 @@ def calculate_position_size(
     trade_value = min(max_trade, trade_value, balance_usdt)
     if trade_value < min_trade:
         msg = (
-            f"invalid inputs (balance={balance_usdt}, price={price}, stop_pct={stop_pct})"
+            f"trade value ${trade_value:.2f} below minimum trade ${min_trade:.2f}"
         )
         logger.debug(msg)
         return 0.0, None, None
