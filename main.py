@@ -50,6 +50,9 @@ DAILY_MAX_INVEST = START_BALANCE * 0.20
 
 BALANCE_FILE = "balance.json"
 
+# Simulated balance used when LIVE_MODE is False
+SIM_USDT_BALANCE = START_BALANCE
+
 MIN_TRADE_USDT = 1.0
 MAX_TRADE_USDT = 10.0
 RISK_PER_TRADE = 0.01  # risk 1% of available balance per trade
@@ -109,6 +112,7 @@ def send(msg):
 
 def poll_telegram_commands():
     """Listen for manual trade commands sent via Telegram."""
+    global SIM_USDT_BALANCE
     offset = 0
     while True:
         try:
@@ -150,9 +154,11 @@ def poll_telegram_commands():
                         BALANCE_FILE,
                         {"usdt": START_BALANCE, "total": START_BALANCE},
                     )
-                    balance.setdefault("usdt", START_BALANCE)
+                    binance_usdt = get_usdt_balance()
+                    if binance_usdt <= 0:
+                        binance_usdt = balance.get("usdt", START_BALANCE)
                     actual_usdt = qty * price
-                    if actual_usdt > balance["usdt"]:
+                    if actual_usdt > binance_usdt:
                         send(f"⚠️ Insufficient balance for {symbol}")
                         continue
 
@@ -165,11 +171,14 @@ def poll_telegram_commands():
                         "stop_loss": None,
                         "trade_id": trade_id,
                     }
-                    balance["usdt"] -= actual_usdt
+                    if not LIVE_MODE:
+                        SIM_USDT_BALANCE -= actual_usdt
+                        client.get_asset_balance = lambda asset: {"free": str(SIM_USDT_BALANCE)}
                     price_cache = {symbol: price}
                     update_balance(balance, positions, price_cache)
+                    binance_usdt = balance["usdt"]
                     send(
-                        f"🟢 BUY {qty} {symbol} at ${price:.2f} — Balance: ${balance['usdt']:.2f}"
+                        f"🟢 BUY {qty} {symbol} at ${price:.2f} — Balance: ${binance_usdt:.2f}"
                     )
 
                 elif cmd == "SELL":
@@ -194,8 +203,7 @@ def poll_telegram_commands():
                         BALANCE_FILE,
                         {"usdt": START_BALANCE, "total": START_BALANCE},
                     )
-                    balance.setdefault("usdt", START_BALANCE)
-                    balance["usdt"] += qty * price
+                    
                     profit = (price - pos["entry"]) * qty
                     pnl_pct = (
                         (price - pos["entry"]) / pos["entry"] * 100
@@ -207,9 +215,13 @@ def poll_telegram_commands():
                     db.remove_position(symbol)
                     del positions[symbol]
                     price_cache = {symbol: price}
+                    if not LIVE_MODE:
+                        SIM_USDT_BALANCE += qty * price
+                        client.get_asset_balance = lambda asset: {"free": str(SIM_USDT_BALANCE)}
                     update_balance(balance, positions, price_cache)
+                    binance_usdt = balance["usdt"]
                     send(
-                        f"🔴 SELL {qty} {symbol} at ${price:.2f} — PnL: ${profit:.2f} USDT ({pnl_pct:.2f}%)"
+                        f"🔴 SELL {qty} {symbol} at ${price:.2f} — PnL: ${profit:.2f} USDT ({pnl_pct:.2f}%) — Balance: ${binance_usdt:.2f}"
                     )
 
                 else:
@@ -249,8 +261,7 @@ def wallet_summary(balance_path: str = BALANCE_FILE):
     """
     data = load_json(balance_path, {"usdt": START_BALANCE, "start_balance": START_BALANCE})
     start_bal = data.get("start_balance", START_BALANCE)
-    current_bal = data.get("usdt", start_bal)
-
+    current_bal = get_usdt_balance()
     positions = db.get_open_positions()
     pos_list = [
         {"symbol": sym, "qty": info["qty"], "entry": info["entry"]}
@@ -267,12 +278,19 @@ def wallet_summary(balance_path: str = BALANCE_FILE):
 
 # Get USDT balance from Binance
 def get_usdt_balance():
-    """Fetch available USDT balance from Binance."""
+    """Fetch available USDT balance."""
+    global SIM_USDT_BALANCE
+    
     def _get():
         bal = client.get_asset_balance(asset="USDT") or {}
         return float(bal.get("free", 0))
 
-    return call_with_retries(_get, name="Binance USDT balance") or 0.0
+    bal = call_with_retries(_get, name="Binance USDT balance")
+    if bal is None:
+        bal = SIM_USDT_BALANCE
+    if not LIVE_MODE:
+        SIM_USDT_BALANCE = bal
+    return bal
 
 def get_price(symbol):
     def _fetch():
@@ -398,11 +416,15 @@ def preload_history():
             strategy.history[sym] = prices
             
 def update_balance(balance, positions, price_cache):
-    """Recalculate total balance and persist it."""
+    """Recalculate total balance using live USDT value and persist it."""
+    binance_usdt = get_usdt_balance()
+    if binance_usdt <= 0:
+        binance_usdt = balance.get("usdt", 0.0)
     invested = sum(
         p["qty"] * price_cache.get(sym, 0) for sym, p in positions.items()
     )
-    total = balance["usdt"] + invested
+    total = binance_usdt + invested
+    balance["usdt"] = binance_usdt
     balance["total"] = total
     save_json(BALANCE_FILE, balance)
     return total
@@ -435,15 +457,18 @@ def sync_positions_with_exchange():
     return db_positions
 
 def trade():
+    global SIM_USDT_BALANCE
     positions = db.get_open_positions()
     balance = load_json(
         BALANCE_FILE,
         {"usdt": START_BALANCE, "total": START_BALANCE},
     )
-    balance.setdefault("usdt", START_BALANCE)
-    balance.setdefault("total", balance["usdt"])
+    balance.setdefault("total", balance.get("usdt", START_BALANCE))
     now = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M')
     binance_usdt = get_usdt_balance()
+    if binance_usdt <= 0:
+        binance_usdt = balance.get("usdt", START_BALANCE)
+    balance["usdt"] = binance_usdt
     print(f"💵 Binance USDT balance: ${binance_usdt:.2f}")
     
     price_cache = {}
@@ -473,35 +498,43 @@ def trade():
             if stop and price <= stop:
                 order_info = place_order(symbol, "sell", qty)
                 print(f"   ↳ order: {order_info}")
-                balance["usdt"] += qty * price
                 trade_id = pos.get("trade_id")
                 db.update_trade_pnl(trade_id, profit, profit, pnl)
                 db.remove_position(symbol)
                 del positions[symbol]
-                
+
+                if not LIVE_MODE:
+                    SIM_USDT_BALANCE += qty * price
+                    client.get_asset_balance = lambda asset: {"free": str(SIM_USDT_BALANCE)}
+
                 total = update_balance(balance, positions, price_cache)
+                binance_usdt = balance["usdt"]
                 send(
-                    f"🛑 STOP {symbol} at ${price:.2f} — PnL: ${profit:.2f} USDT ({pnl:.2f}%) | Balance: ${balance['usdt']:.2f} — {now}"
+                    f"🛑 STOP {symbol} at ${price:.2f} — PnL: ${profit:.2f} USDT ({pnl:.2f}%) | Balance: ${binance_usdt:.2f} — {now}"
                 )
                 print(f"🛑 STOP {symbol} at ${price:.2f} | PnL: ${profit:.2f} USDT ({pnl:.2f}%)")
-                print(f"   ↳ Balance now ${balance['usdt']:.2f} USDT, Total ${total:.2f}")
+                print(f"   ↳ Balance now ${binance_usdt:.2f} USDT, Total ${total:.2f}")
                 continue
 
             if strategy.should_sell(symbol, pos, price, headlines):
                 order_info = place_order(symbol, "sell", qty)
                 print(f"   ↳ order: {order_info}")
-                balance["usdt"] += qty * price
                 trade_id = pos.get("trade_id")
                 db.update_trade_pnl(trade_id, profit, profit, pnl)
                 db.remove_position(symbol)
                 del positions[symbol]
+
+                if not LIVE_MODE:
+                    SIM_USDT_BALANCE += qty * price
+                    client.get_asset_balance = lambda asset: {"free": str(SIM_USDT_BALANCE)}
                 
                 total = update_balance(balance, positions, price_cache)
+                binance_usdt = balance["usdt"]
                 send(
-                    f"✅ CLOSE {symbol} at ${price:.2f} — Profit: ${profit:.2f} USDT (+{pnl:.2f}%) | Balance: ${balance['usdt']:.2f} — {now}"
+                    f"✅ CLOSE {symbol} at ${price:.2f} — Profit: ${profit:.2f} USDT (+{pnl:.2f}%) | Balance: ${binance_usdt:.2f} — {now}"
                 )
                 print(f"✅ CLOSE {symbol} at ${price:.2f} | Profit: ${profit:.2f} USDT (+{pnl:.2f}%)")
-                print(f"   ↳ Balance now ${balance['usdt']:.2f} USDT, Total ${total:.2f}")
+                print(f"   ↳ Balance now ${binance_usdt:.2f} USDT, Total ${total:.2f}")
             continue
 
         # For new positions, defer decision to strategy
@@ -514,7 +547,7 @@ def trade():
         )
         remaining_allowance = DAILY_MAX_INVEST - current_invested
         print(
-            f"💰 Balance: ${balance['usdt']:.2f}, Invested: ${current_invested:.2f}, Remaining cap: ${remaining_allowance:.2f}"
+            f"💰 Balance: ${binance_usdt:.2f}, Invested: ${current_invested:.2f}, Remaining cap: ${remaining_allowance:.2f}"
         )
 
         if remaining_allowance <= 0:
@@ -523,7 +556,7 @@ def trade():
 
         max_trade = min(remaining_allowance, MAX_TRADE_USDT)
         qty, stop_loss, reason = calculate_position_size(
-            balance["usdt"],
+            binance_usdt,
             price,
             RISK_PER_TRADE,
             STOP_LOSS_PCT,
@@ -546,7 +579,7 @@ def trade():
         stop_display = f"{stop_loss:.2f}" if stop_loss is not None else "0.0"
         print(f"🔢 {symbol} → qty={qty}, value={actual_usdt:.4f}, stop={stop_display}")
 
-        if actual_usdt > balance["usdt"]:
+        if actual_usdt > binance_usdt:
             print(f"❌ Skipped {symbol} — insufficient balance for ${actual_usdt:.2f}")
             continue
 
@@ -562,18 +595,23 @@ def trade():
             "stop_loss": stop_loss,
             "trade_id": trade_id,
         }
-        balance["usdt"] -= actual_usdt
+
+        if not LIVE_MODE:
+            SIM_USDT_BALANCE -= actual_usdt
+            client.get_asset_balance = lambda asset: {"free": str(SIM_USDT_BALANCE)}
                     
         total = update_balance(balance, positions, price_cache)
+        binance_usdt = balance["usdt"]
         send(
-            f"🟢 BUY {qty} {symbol} at ${price:.2f} — Value: ${actual_usdt:.2f} USDT | Remaining: ${balance['usdt']:.2f} — {now}"
+            f"🟢 BUY {qty} {symbol} at ${price:.2f} — Value: ${actual_usdt:.2f} USDT | Remaining: ${binance_usdt:.2f} — {now}"
         )
         print(f"✅ BUY {qty} {symbol} at ${price:.2f} (${actual_usdt:.2f})")  
 
     # Balance update
     total = update_balance(balance, positions, price_cache)
+    binance_usdt = balance["usdt"]
     send(
-        f"📊 Updated Balance: ${balance['usdt']:.2f} (Total ${total:.2f}) — {now} | Binance USDT: ${binance_usdt:.2f}"
+        f"📊 Updated Balance: ${binance_usdt:.2f} (Total ${total:.2f}) — {now}"
     )
 
     avg = db.average_profit_last_n_trades(10)
