@@ -36,7 +36,7 @@ def calculate_position_size(
         reason:   debug message when qty is zero
     """
     if balance_usdt <= 0:
-        msg = "balance is zero"
+        msg = "Balance is zero"
         logger.debug(msg)
         return 0.0, None, msg
 
@@ -53,7 +53,7 @@ def calculate_position_size(
             f"risk amount ${risk_amount:.2f} below minimum trade ${min_trade:.2f}"
         )
         logger.debug(msg)
-        return 0.0, None, None
+        return 0.0, None, msg
 
     stop_loss = price * (1 - stop_pct)
     qty = risk_amount / (price - stop_loss)
@@ -62,10 +62,10 @@ def calculate_position_size(
     trade_value = min(max_trade, trade_value, balance_usdt)
     if trade_value < min_trade:
         msg = (
-            f"trade value ${trade_value:.2f} below minimum trade ${min_trade:.2f}"
+            f"Trade value ${trade_value:.2f} below minimum trade ${min_trade:.2f}"
         )
         logger.debug(msg)
-        return 0.0, None, None
+        return 0.0, None, msg
 
     qty = math.floor((trade_value / price) * 1e6) / 1e6
 
@@ -77,5 +77,5 @@ def calculate_position_size(
             f"trade value ${trade_value:.2f} below minimum after rounding"
         )
         logger.debug(msg)
-        return 0.0, None, None
+        return 0.0, None, msg
     return qty, stop_loss, None
