@@ -12,6 +12,7 @@ from binance.client import Client
 from strategies.base import Strategy
 from strategies.ma import MovingAverageCrossStrategy
 from risk import calculate_position_size
+import price_stream
 
 def _require_env_vars(names):
     """Ensure required environment variables are present."""
@@ -155,6 +156,13 @@ def get_usdt_balance():
     return call_with_retries(_get, name="Binance USDT balance") or 0.0
 
 def get_price(symbol):
+    # Prefer price from websocket cache
+    price = price_stream.get_latest_price(symbol)
+    if price is not None:
+        save_price(symbol, price)
+        return price
+
+    # Fallback to REST request if stream data is unavailable
     def _fetch():
         return float(client.get_symbol_ticker(symbol=symbol)["price"])
 
@@ -348,6 +356,7 @@ def trade():
     
     price_cache = {}
     preload_history()
+    price_stream.start_stream(TRADING_PAIRS)
 
     for symbol in TRADING_PAIRS:
         price = get_price(symbol)
