@@ -453,8 +453,10 @@ def trade():
         actual_usdt = qty * price
 
         if actual_usdt < MIN_TRADE_USDT:
-            print(f"❌ Skipped {symbol} — trade value ${actual_usdt:.2f} below minimum")
+            msg = reason or f"trade value ${actual_usdt:.2f} below minimum"
+            print(f"❌ Skipped {symbol} — {msg}")
             continue
+            
         stop_display = f"{stop_loss:.2f}" if stop_loss is not None else "0.0"
         print(f"🔢 {symbol} → qty={qty}, value={actual_usdt:.4f}, stop={stop_display}")
 
