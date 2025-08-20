@@ -40,7 +40,7 @@ def calculate_position_size(
             f"invalid inputs (balance={balance_usdt}, price={price}, stop_pct={stop_pct})"
         )
         logger.debug(msg)
-        return 0.0, None, msg
+        return 0.0, None, None
 
     risk_amount = balance_usdt * risk_pct
     if risk_amount < min_trade:
@@ -48,7 +48,7 @@ def calculate_position_size(
             f"invalid inputs (balance={balance_usdt}, price={price}, stop_pct={stop_pct})"
         )
         logger.debug(msg)
-        return 0.0, None, msg
+        return 0.0, None, None
 
     stop_loss = price * (1 - stop_pct)
     qty = risk_amount / (price - stop_loss)
@@ -60,7 +60,7 @@ def calculate_position_size(
             f"invalid inputs (balance={balance_usdt}, price={price}, stop_pct={stop_pct})"
         )
         logger.debug(msg)
-        return 0.0, None, msg
+        return 0.0, None, None
 
     qty = math.floor((trade_value / price) * 1e6) / 1e6
 
@@ -72,5 +72,5 @@ def calculate_position_size(
             f"trade value ${trade_value:.2f} below minimum after rounding"
         )
         logger.debug(msg)
-        return 0.0, None, msg
+        return 0.0, None, None
     return qty, stop_loss, None
