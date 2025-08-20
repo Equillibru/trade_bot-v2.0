@@ -430,7 +430,7 @@ def trade():
             continue
 
         max_trade = min(remaining_allowance, MAX_TRADE_USDT)
-        qty, stop_loss = calculate_position_size(
+        qty, stop_loss, reason = calculate_position_size(
             balance["usdt"],
             price,
             RISK_PER_TRADE,
@@ -438,11 +438,13 @@ def trade():
             MIN_TRADE_USDT,
             max_trade,
         )
-        actual_usdt = qty * price
-        
+       
         if qty <= 0:
-            print(f"❌ Position size too small — skipping {symbol}")
+            msg = reason or "position size too small"
+            print(f"❌ Skipped {symbol} — {msg}")
             continue
+
+        actual_usdt = qty * price
 
         if actual_usdt < MIN_TRADE_USDT:
             print(f"❌ Skipped {symbol} — trade value ${actual_usdt:.2f} below minimum")
