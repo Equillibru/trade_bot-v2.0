@@ -6,6 +6,7 @@ import sqlite3
 import argparse
 import db
 import requests
+import threading #Telegram two-way communication
 # import math
 from dotenv import load_dotenv
 from binance.client import Client
@@ -105,6 +106,119 @@ def send(msg):
         requests.post(url, data={"chat_id": TELEGRAM_CHAT_ID, "text": msg}, timeout=10)
 
     call_with_retries(_send, name="Telegram", alert=False)
+
+def poll_telegram_commands():
+    """Listen for manual trade commands sent via Telegram."""
+    offset = 0
+    while True:
+        try:
+            url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
+            params = {"timeout": 30, "offset": offset}
+            resp = requests.get(url, params=params, timeout=35)
+            data = resp.json()
+
+            for update in data.get("result", []):
+                offset = update["update_id"] + 1
+                msg = update.get("message", {})
+                chat_id = msg.get("chat", {}).get("id")
+                if str(chat_id) != str(TELEGRAM_CHAT_ID):
+                    continue
+
+                text = (msg.get("text") or "").strip()
+                parts = text.split()
+                if len(parts) != 3:
+                    send("❓ Use BUY/SELL <symbol> <qty>")
+                    continue
+
+                cmd, symbol, qty_str = parts
+                cmd = cmd.upper()
+                symbol = symbol.upper()
+                try:
+                    qty = float(qty_str)
+                except ValueError:
+                    send("❓ Quantity must be numeric")
+                    continue
+
+                if cmd == "BUY":
+                    price = get_price(symbol)
+                    if not price or price <= 0:
+                        send(f"⚠️ Invalid price for {symbol}")
+                        continue
+
+                    positions = db.get_open_positions()
+                    balance = load_json(
+                        BALANCE_FILE,
+                        {"usdt": START_BALANCE, "total": START_BALANCE},
+                    )
+                    balance.setdefault("usdt", START_BALANCE)
+                    actual_usdt = qty * price
+                    if actual_usdt > balance["usdt"]:
+                        send(f"⚠️ Insufficient balance for {symbol}")
+                        continue
+
+                    place_order(symbol, "buy", qty)
+                    trade_id = db.log_trade(symbol, "BUY", qty, price)
+                    db.upsert_position(symbol, qty, price, None, trade_id)
+                    positions[symbol] = {
+                        "qty": qty,
+                        "entry": price,
+                        "stop_loss": None,
+                        "trade_id": trade_id,
+                    }
+                    balance["usdt"] -= actual_usdt
+                    price_cache = {symbol: price}
+                    update_balance(balance, positions, price_cache)
+                    send(
+                        f"🟢 BUY {qty} {symbol} at ${price:.2f} — Balance: ${balance['usdt']:.2f}"
+                    )
+
+                elif cmd == "SELL":
+                    positions = db.get_open_positions()
+                    if symbol not in positions:
+                        send(f"⚠️ No open position for {symbol}")
+                        continue
+                    pos = positions[symbol]
+                    if abs(pos["qty"] - qty) > 1e-6:
+                        send(
+                            f"⚠️ Position size {pos['qty']} {symbol}, cannot sell {qty}"
+                        )
+                        continue
+
+                    price = get_price(symbol)
+                    if not price or price <= 0:
+                        send(f"⚠️ Invalid price for {symbol}")
+                        continue
+
+                    place_order(symbol, "sell", qty)
+                    balance = load_json(
+                        BALANCE_FILE,
+                        {"usdt": START_BALANCE, "total": START_BALANCE},
+                    )
+                    balance.setdefault("usdt", START_BALANCE)
+                    balance["usdt"] += qty * price
+                    profit = (price - pos["entry"]) * qty
+                    pnl_pct = (
+                        (price - pos["entry"]) / pos["entry"] * 100
+                        if pos["entry"]
+                        else 0
+                    )
+                    trade_id = pos.get("trade_id")
+                    db.update_trade_pnl(trade_id, profit, profit, pnl_pct)
+                    db.remove_position(symbol)
+                    del positions[symbol]
+                    price_cache = {symbol: price}
+                    update_balance(balance, positions, price_cache)
+                    send(
+                        f"🔴 SELL {qty} {symbol} at ${price:.2f} — PnL: ${profit:.2f} USDT ({pnl_pct:.2f}%)"
+                    )
+
+                else:
+                    send("❓ Unknown command")
+
+        except Exception as e:
+            print(f"Telegram poll error: {e}")
+
+        time.sleep(1)
 
 def load_json(path, default):
     try:
@@ -469,6 +583,7 @@ def main():
     print("🤖 Trading bot started.")
     send("🤖 Trading bot is live.")
     sync_positions_with_exchange()
+    threading.Thread(target=poll_telegram_commands, daemon=True).start()
     while True:
         try:
             trade()
