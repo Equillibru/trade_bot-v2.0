@@ -14,7 +14,6 @@ from strategies.ma import MovingAverageCrossStrategy
 from strategies.rsi import RSIStrategy
 from risk import calculate_position_size
 
-
 def _require_env_vars(names):
     """Ensure required environment variables are present."""
     missing = [name for name in names if not os.getenv(name)]
@@ -160,6 +159,8 @@ def get_usdt_balance():
         return float(bal.get("free", 0))
 
     return call_with_retries(_get, name="Binance USDT balance") or 0.0
+
+    def get_price():
 
     def _fetch():
         return float(client.get_symbol_ticker(symbol=symbol)["price"])
