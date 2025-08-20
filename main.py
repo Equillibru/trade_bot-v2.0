@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 from binance.client import Client
 from strategies.base import Strategy
 from strategies.ma import MovingAverageCrossStrategy
+from strategies.rsi import RSIStrategy
 from risk import calculate_position_size
 import price_stream
 
@@ -70,7 +71,12 @@ def _init_strategy(name: str) -> Strategy:
         return MovingAverageCrossStrategy(
             bad_words=bad_words, profit_target_pct=PROFIT_TARGET_PCT
         )
+    if name == "rsi":
+        return RSIStrategy(
+            bad_words=bad_words, profit_target_pct=PROFIT_TARGET_PCT
+        )
     raise ValueError(f"Unknown strategy '{name}'")
+    
 
 
 strategy: Strategy = _init_strategy(STRATEGY_NAME)
