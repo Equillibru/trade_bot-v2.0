@@ -356,8 +356,7 @@ def trade():
     
     price_cache = {}
     preload_history()
-    price_stream.start_stream(TRADING_PAIRS)
-
+    
     for symbol in TRADING_PAIRS:
         price = get_price(symbol)
         if not price or price <= 0:
@@ -487,6 +486,7 @@ def trade():
 def main():
     print("🤖 Trading bot started.")
     send("🤖 Trading bot is live.")
+    price_stream.start_stream(TRADING_PAIRS)
     sync_positions_with_exchange()
     while True:
         try:
