@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 import math
+
+
+logger = logging.getLogger(__name__)
 
 
 def calculate_position_size(
@@ -26,16 +30,25 @@ def calculate_position_size(
 
     Returns
     -------
-    tuple (qty, stop_loss)
+    tuple (qty, stop_loss, reason)
         qty:       quantity of asset to buy
         stop_loss: price at which to exit the trade
+        reason:   debug message when qty is zero
     """
     if balance_usdt <= 0 or price <= 0 or stop_pct <= 0:
-        return 0.0, None
+        msg = (
+            f"invalid inputs (balance={balance_usdt}, price={price}, stop_pct={stop_pct})"
+        )
+        logger.debug(msg)
+        return 0.0, None, msg
 
     risk_amount = balance_usdt * risk_pct
     if risk_amount < min_trade:
-        return 0.0, None
+        msg = (
+            f"invalid inputs (balance={balance_usdt}, price={price}, stop_pct={stop_pct})"
+        )
+        logger.debug(msg)
+        return 0.0, None, msg
 
     stop_loss = price * (1 - stop_pct)
     qty = risk_amount / (price - stop_loss)
@@ -43,7 +56,11 @@ def calculate_position_size(
 
     trade_value = min(max_trade, trade_value, balance_usdt)
     if trade_value < min_trade:
-        return 0.0, None
+        msg = (
+            f"invalid inputs (balance={balance_usdt}, price={price}, stop_pct={stop_pct})"
+        )
+        logger.debug(msg)
+        return 0.0, None, msg
 
     qty = math.floor((trade_value / price) * 1e6) / 1e6
 
@@ -51,6 +68,9 @@ def calculate_position_size(
     # now falls below the minimum threshold we reject the trade entirely.
     trade_value = qty * price
     if trade_value < min_trade or qty <= 0:
-        return 0.0, None
-
-    return qty, stop_loss
+        msg = (
+            f"trade value ${trade_value:.2f} below minimum after rounding"
+        )
+        logger.debug(msg)
+        return 0.0, None, msg
+    return qty, stop_loss, None
