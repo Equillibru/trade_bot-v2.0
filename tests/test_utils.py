@@ -198,7 +198,7 @@ def test_trade_skips_when_position_size_zero(tmp_path, monkeypatch, main_module)
     monkeypatch.setattr(
         main_module,
         "calculate_position_size",
-        lambda *a, **k: (0.0, None),
+        lambda *a, **k: (0.0, None, "forced zero"),
     )
     monkeypatch.setattr(main_module, "send", lambda msg: None)
 
