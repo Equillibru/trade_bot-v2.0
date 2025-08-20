@@ -160,8 +160,7 @@ def get_usdt_balance():
 
     return call_with_retries(_get, name="Binance USDT balance") or 0.0
 
-    def get_price():
-
+def get_price(symbol):
     def _fetch():
         return float(client.get_symbol_ticker(symbol=symbol)["price"])
 
