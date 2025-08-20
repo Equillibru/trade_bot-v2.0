@@ -13,7 +13,7 @@ from strategies.base import Strategy
 from strategies.ma import MovingAverageCrossStrategy
 from strategies.rsi import RSIStrategy
 from risk import calculate_position_size
-import price_stream
+
 
 def _require_env_vars(names):
     """Ensure required environment variables are present."""
@@ -161,43 +161,15 @@ def get_usdt_balance():
 
     return call_with_retries(_get, name="Binance USDT balance") or 0.0
 
-def get_price(symbol):
-    # Prefer price from websocket cache
-    price = price_stream.get_latest_price(symbol)
-    if price is not None:
-        save_price(symbol, price)
-        return price
-
-    # Fallback to REST request if stream data is unavailable
     def _fetch():
         return float(client.get_symbol_ticker(symbol=symbol)["price"])
 
     price = call_with_retries(_fetch, name=f"Binance price {symbol}")
     if price is not None:
         save_price(symbol, price)
-        return price
-
-    # fallback to last stored price if live request fails
-    try:
-        conn = sqlite3.connect("prices.db")
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT price FROM prices WHERE symbol=? ORDER BY timestamp DESC LIMIT 1",
-            (symbol,),
-        )
-        row = cur.fetchone()
-        if row:
-            price = row[0]
-            print(f"Using cached price for {symbol}: {price}")
-    except Exception as e:
-        print(f"Price load error: {e}")
-    finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
-
+     
     return price
+    
 def place_order(symbol, side, qty):
     def _order():
         return client.create_order(
@@ -496,7 +468,6 @@ def trade():
 def main():
     print("🤖 Trading bot started.")
     send("🤖 Trading bot is live.")
-    price_stream.start_stream(TRADING_PAIRS)
     sync_positions_with_exchange()
     while True:
         try:
