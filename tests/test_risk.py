@@ -36,7 +36,7 @@ def test_risk_amount_below_min_trade():
     assert msg == "risk amount $0.05 below minimum trade $1.00"
 
     def test_trade_value_below_min_trade():
-        qty, stop, msg = calculate_position_size(
+    qty, stop, msg = calculate_position_size(
         100.0,
         50.0,
         risk_pct=0.01,
