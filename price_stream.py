@@ -1,6 +1,6 @@
 import os
-import threading
 import time
+import threading
 from typing import Dict, List, Optional
 
 from binance import ThreadedWebsocketManager
@@ -54,7 +54,7 @@ def start_stream(trading_pairs: List[str]) -> None:
     """Begin streaming ticker prices for the given trading pairs."""
     global _symbols, _monitor_thread
     _symbols = trading_pairs
-    _monitor_stop_clear()
+    _monitor_stop.clear()
     _start_manager()
     if not _monitor_thread or not _monitor_thread.is_alive():
         _monitor_thread = threading.Thread(target=_monitor, daemon=True)
