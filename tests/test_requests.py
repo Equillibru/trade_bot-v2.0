@@ -1,3 +1,4 @@
+import os
 import sys
 import types
 import unittest
@@ -18,6 +19,12 @@ client_mod.Client = MagicMock(return_value=client_instance)
 binance_mod.client = client_mod
 sys.modules['binance'] = binance_mod
 sys.modules['binance.client'] = client_mod
+
+os.environ.setdefault("TELEGRAM_TOKEN", "test")
+os.environ.setdefault("TELEGRAM_CHAT_ID", "test")
+os.environ.setdefault("BINANCE_API_KEY", "test")
+os.environ.setdefault("BINANCE_SECRET_KEY", "test")
+os.environ.setdefault("NEWSAPI_KEY", "test")
 
 import main
 
