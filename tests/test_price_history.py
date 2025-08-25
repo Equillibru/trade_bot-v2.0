@@ -66,7 +66,7 @@ def test_save_and_load_prices(monkeypatch, tmp_path):
         main.save_price("BONKUSDT", float(100 + i))
         main.save_price("LTCUSDT", float(100 + i))
         main.save_price("BNBUSDT", float(100 + i))
-        main.save_price("AVAUSDT", float(100 + i))
+        main.save_price("AVAXUSDT", float(100 + i))
         main.save_price("XLMUSDT", float(100 + i))
         main.save_price("UNIUSDT", float(100 + i))
         main.save_price("CFXUSDT", float(100 + i))
@@ -112,7 +112,7 @@ def test_save_and_load_prices(monkeypatch, tmp_path):
     prices_bonk = main.load_prices("BONKUSDT", 5)
     prices_ltc = main.load_prices("LTCUSDT", 5)
     prices_bnb = main.load_prices("BNBUSDT", 5)
-    prices_ava = main.load_prices("AVAUSDT", 5)
+    prices_ava = main.load_prices("AVAXUSDT", 5)
     prices_xlm = main.load_prices("XLMUSDT", 5)
     prices_uni = main.load_prices("UNIUSDT", 5)
     prices_cfx = main.load_prices("CFXUSDT", 5)
@@ -149,7 +149,7 @@ def test_save_and_load_prices(monkeypatch, tmp_path):
     assert main.strategy.history["BONKUSDT"] == prices_bonk
     assert main.strategy.history["LTCUSDT"] == prices_ltc
     assert main.strategy.history["BNBUSDT"] == prices_bnb
-    assert main.strategy.history["AVAUSDT"] == prices_ava
+    assert main.strategy.history["AVAXUSDT"] == prices_ava
     assert main.strategy.history["XLMUSDT"] == prices_xlm
     assert main.strategy.history["UNIUSDT"] == prices_uni
     assert main.strategy.history["CFXUSDT"] == prices_cfx
