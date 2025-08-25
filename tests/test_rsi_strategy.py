@@ -31,11 +31,18 @@ def test_rsi_sell_signal_on_overbought():
 
 
 def test_rsi_sell_on_profit_target_without_overbought():
-    strat = RSIStrategy(period=2, oversold=30, overbought=70, profit_target_pct=1.0)
+     profit_target_pct = 4.0
+    strat = RSIStrategy(
+        period=2,
+        oversold=30,
+        overbought=70,
+        profit_target_pct=profit_target_pct,
+    )
     symbol = "XRPUSDT"
     headlines: list[str] = []
     pos = {"entry": 1.0, "qty": 1.0}
 
     strat.should_sell(symbol, pos, 1.0, headlines)  # build history
     strat.should_sell(symbol, pos, 0.99, headlines)
-    assert strat.should_sell(symbol, pos, 1.01, headlines) is True
+    target_price = 1 + profit_target_pct / 100
+    assert strat.should_sell(symbol, pos, target_price, headlines) is True
