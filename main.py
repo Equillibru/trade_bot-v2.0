@@ -4,8 +4,6 @@ import datetime
 import json
 import sqlite3
 import argparse
-from typing import list
-
 import db
 import requests
 import threading #Telegram two-way communication
@@ -61,11 +59,56 @@ RISK_PER_TRADE = 0.01  # risk 1% of available balance per trade
 STOP_LOSS_PCT = 0.02   # 2% stop loss below entry
 RISK_REWARD = 2.0
 FEE_RATE = 0.001
-TRADING_PAIRS = ["BTCUSDT", "ETHUSDT", "XRPUSDT", "SOLUSDT", "DOGEUSDT", "ENAUSDT", "PENGUUSDT", "TRXUSDT", 
-                 "ADAUSDT", "PEPEUSDT", "BONKUSDT", "LTCUSDT", "BNBUSDT", "AVAXUSDT", "XLMUSDT", "UNIUSDT", 
-                 "CFXUSDT", "AAVEUSDT", "WIFUSDT", "KERNELUSDT", "BCHUSDT", "ARBUSDT", "ENSUSDT", 
-                 "DOTUSDT", "CKBUSDT", "LINKUSDT", "TONUSDT", "NEARUSDT", "ETCUSDT", "CAKEUSDT", 
-                 "SHIBUSDT", "OPUSDT"]
+
+
+# Default trading pairs used when no configuration is supplied
+DEFAULT_TRADING_PAIRS = [
+    "BTCUSDT", "ETHUSDT", "XRPUSDT", "SOLUSDT", "DOGEUSDT", "ENAUSDT",
+    "PENGUUSDT", "TRXUSDT", "ADAUSDT", "PEPEUSDT", "BONKUSDT", "LTCUSDT",
+    "BNBUSDT", "AVAXUSDT", "XLMUSDT", "UNIUSDT", "CFXUSDT", "AAVEUSDT",
+    "WIFUSDT", "KERNELUSDT", "BCHUSDT", "ARBUSDT", "ENSUSDT", "DOTUSDT",
+    "CKBUSDT", "LINKUSDT", "TONUSDT", "NEARUSDT", "ETCUSDT", "CAKEUSDT",
+    "SHIBUSDT", "OPUSDT",
+]
+
+
+def load_trading_pairs() -> list[str]:
+    """Load trading pairs from env var or JSON file.
+
+    The environment variable ``TRADING_PAIRS`` may contain either a JSON array
+    or a comma separated list.  If it is not provided, the loader will look for
+    a JSON file specified by ``TRADING_PAIRS_CONFIG`` (defaulting to
+    ``trading_pairs.json``).  If neither are supplied or parsing fails, the
+    default pairs are returned.
+    """
+
+    env_pairs = os.getenv("TRADING_PAIRS")
+    if env_pairs:
+        try:
+            pairs = json.loads(env_pairs)
+            if isinstance(pairs, str):
+                pairs = [p.strip() for p in pairs.split(",") if p.strip()]
+        except json.JSONDecodeError:
+            pairs = [p.strip() for p in env_pairs.split(",") if p.strip()]
+        if isinstance(pairs, list) and pairs:
+            return [str(p) for p in pairs]
+
+    config_path = os.getenv("TRADING_PAIRS_CONFIG", "trading_pairs.json")
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                data = data.get("trading_pairs", data)
+            if isinstance(data, list):
+                return [str(p) for p in data]
+        except Exception:
+            pass
+
+    return DEFAULT_TRADING_PAIRS.copy()
+
+
+TRADING_PAIRS = load_trading_pairs()
 
 bad_words = ["lawsuit", "ban", "hack", "crash", "regulation", "investigation"]
  # good_words = ["surge", "rally", "gain", "partnership", "bullish", "upgrade", "adoption"] - relaxing the news filter so trades proceed unless negative words are detected
@@ -308,7 +351,7 @@ def get_price(symbol):
         save_price(symbol, price)
     return price
 
-def fetch_historical_prices(symbol: str, limit: int) -> List[float]:
+def fetch_historical_prices(symbol: str, limit: int) -> list[float]:
     """Fetch recent historical closing prices for ``symbol``.
 
     Uses Binance 1-minute klines and returns the closing price from each
@@ -316,7 +359,7 @@ def fetch_historical_prices(symbol: str, limit: int) -> List[float]:
     newest. Network errors are handled via ``call_with_retries``.
     """
 
-    def _fetch() -> List[float]:
+    def _fetch() -> list[float]:
         klines = client.get_klines(
             symbol=symbol,
             interval=Client.KLINE_INTERVAL_1MINUTE,
