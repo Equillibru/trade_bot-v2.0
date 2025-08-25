@@ -54,11 +54,29 @@ def start_stream(trading_pairs: List[str]) -> None:
     """Begin streaming ticker prices for the given trading pairs."""
     global _symbols, _monitor_thread
     _symbols = trading_pairs
+    _monitor_stop_clear()
     _start_manager()
     if not _monitor_thread or not _monitor_thread.is_alive():
         _monitor_thread = threading.Thread(target=_monitor, daemon=True)
         _monitor_thread.start()
 
+def stop_stream() -> None:
+    """Stop streaming prices and reset internal state."""
+    global _twm, _symbols, _monitor_thread
+    _monitor_stop.set()
+    if _twm:
+        try:
+            _twm.stop()
+        except Exception:
+            pass
+        _twm = None
+    if _monitor_thread and _monitor_thread.is_alive():
+        _monitor_thread.join()
+    _monitor_thread = None
+    _symbols = []
+    with _prices_lock:
+        latest_prices.clear()
+    _monitor_stop.clear()
 
 def get_latest_price(symbol: str) -> Optional[float]:
     """Return the most recently cached price for ``symbol`` or ``None``."""
