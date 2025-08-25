@@ -1,4 +1,8 @@
 import sys
+import sys
+import sys
+import sys
+
 from pathlib import Path
 
 import pytest
@@ -31,7 +35,7 @@ def test_rsi_sell_signal_on_overbought():
 
 
 def test_rsi_sell_on_profit_target_without_overbought():
-     profit_target_pct = 4.0
+    profit_target_pct = 4.0
     strat = RSIStrategy(
         period=2,
         oversold=30,
