@@ -60,3 +60,24 @@ def test_get_price_requests_and_saves(monkeypatch, tmp_path):
     conn.close()
 
     assert count == 2
+
+def test_get_price_uses_cache(monkeypatch, tmp_path):
+    main, dummy = setup_main(monkeypatch, tmp_path)
+
+    import price_stream
+
+    price_stream.latest_prices.clear()
+    price_stream.latest_prices["BTCUSDT"] = 99.99
+
+    price = main.get_price("BTCUSDT")
+
+    assert price == 99.99
+    assert dummy.calls == []
+
+    conn = sqlite3.connect("prices.db")
+    cur = conn.cursor()
+    cur.execute("SELECT price FROM prices WHERE symbol=?", ("BTCUSDT",))
+    stored = cur.fetchone()[0]
+    conn.close()
+
+    assert stored == 99.99
