@@ -167,11 +167,12 @@ def poll_telegram_commands():
 
                     place_order(symbol, "buy", qty)
                     trade_id = db.log_trade(symbol, "BUY", qty, price)
-                    db.upsert_position(symbol, qty, price, None, trade_id)
+                    db.upsert_position(symbol, qty, price, None, trade_id, price)
                     positions[symbol] = {
                         "qty": qty,
                         "entry": price,
                         "stop_loss": None,
+                        "trail_price": price,
                         "trade_id": trade_id,
                     }
                     if not LIVE_MODE:
@@ -454,7 +455,12 @@ def sync_positions_with_exchange():
                 del db_positions[symbol]
             else:
                 db.upsert_position(
-                    symbol, exch_qty, pos["entry"], pos.get("stop_loss"), pos["trade_id"]
+                    symbol,
+                    exch_qty,
+                    pos["entry"],
+                    pos.get("stop_loss"),
+                    pos["trade_id"],
+                    pos.get("trail_price", pos["entry"]),
                 )
                 db_positions[symbol]["qty"] = exch_qty
     return db_positions
@@ -492,7 +498,17 @@ def trade():
             pos = positions[symbol]
             entry = pos["entry"]
             qty = pos["qty"]
-            stop = pos.get("stop_loss")
+            trail = pos.get("trail_price", entry)
+            if price > trail:
+                trail = price
+                stop = trail * (1 - STOP_LOSS_PCT)
+                pos["trail_price"] = trail
+                pos["stop_loss"] = stop
+                db.upsert_position(
+                    symbol, qty, entry, stop, pos.get("trade_id"), trail
+                )
+            else:
+                stop = pos.get("stop_loss")
             pnl = ((price - entry) / entry) * 100
             profit = (price - entry) * qty
 
@@ -590,12 +606,13 @@ def trade():
         print(f"   ↳ order: {order_info}")
 
         trade_id = db.log_trade(symbol, "BUY", qty, price)
-        db.upsert_position(symbol, qty, price, stop_loss, trade_id)
+        db.upsert_position(symbol, qty, price, stop_loss, trade_id, price)
         positions[symbol] = {
             "type": "LONG",
             "qty": qty,
             "entry": price,
             "stop_loss": stop_loss,
+            "trail_price": price,
             "trade_id": trade_id,
         }
 
