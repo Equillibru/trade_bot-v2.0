@@ -47,9 +47,9 @@ def setup_main(monkeypatch, tmp_path):
 
 
 def test_initial_history_allows_first_trade(monkeypatch, tmp_path):
+    monkeypatch.setenv("TRADING_PAIRS", '["BTCUSDT"]')
     main = setup_main(monkeypatch, tmp_path)
 
-    monkeypatch.setattr(main, "TRADING_PAIRS", ["BTCUSDT"])
     monkeypatch.setattr(main, "BALANCE_FILE", tmp_path / "balance.json")
     monkeypatch.setattr(main, "get_price", lambda s: 15.0)
     monkeypatch.setattr(main, "get_news_headlines", lambda s: ["rally"])
