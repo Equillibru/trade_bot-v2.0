@@ -347,10 +347,18 @@ def get_usdt_balance():
     return bal
 
 def get_price(symbol):
-    def _fetch():
-        return float(client.get_symbol_ticker(symbol=symbol)["price"])
+    try:
+        from price_stream import get_latest_price
+    except Exception:
+        def get_latest_price(_):
+            return None
 
-    price = call_with_retries(_fetch, name=f"Binance price {symbol}")
+    price = get_latest_price(symbol)
+    if price is None:
+        def _fetch():
+            return float(client.get_symbol_ticker(symbol=symbol)["price"])
+
+        price = call_with_retries(_fetch, name=f"Binance price {symbol}")
     if price is not None:
         save_price(symbol, price)
     return price
@@ -548,7 +556,7 @@ def sync_positions_with_exchange():
     return db_positions
 
 def trade():
-    global SIM_USDT_BALANCE
+    global SIM_USDT_BALANCE, TRADING_PAIRS
     positions = db.get_open_positions()
     balance = load_json(
         BALANCE_FILE,
@@ -635,7 +643,7 @@ def trade():
                     binance_usdt,
                     total,
                 )
-                continue
+                break
 
             if strategy.should_sell(symbol, pos, price, headlines):
                 order_info = place_order(symbol, "sell", qty)
@@ -668,7 +676,7 @@ def trade():
                     binance_usdt,
                     total,
                 )
-            continue
+            break
 
         # For new positions, defer decision to strategy
         if not strategy.should_buy(symbol, price, headlines):
@@ -755,6 +763,9 @@ def trade():
         logger.info(
             "✅ BUY %s %s at $%.2f ($%.2f)", qty, symbol, price, actual_cost
         )
+        break
+
+    TRADING_PAIR = list(positions.keys())
 
     # Balance update
     total = update_balance(balance, positions, price_cache)
