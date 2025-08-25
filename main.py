@@ -4,6 +4,7 @@ import datetime
 import json
 import sqlite3
 import argparse
+import logging
 import db
 import requests
 import threading #Telegram two-way communication
@@ -14,6 +15,9 @@ from strategies.base import Strategy
 from strategies.ma import MovingAverageCrossStrategy
 from strategies.rsi import RSIStrategy
 from risk import calculate_position_size
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 def _require_env_vars(names):
     """Ensure required environment variables are present."""
@@ -143,12 +147,12 @@ def call_with_retries(func, attempts=3, base_delay=1, name="request", alert=True
         except Exception as e:
             if i == attempts - 1:
                 msg = f"{name} failed after {attempts} attempts: {e}"
-                print(msg)
+                logger.error(msg)
                 if alert:
                     try:
                         send(f"⚠️ {msg}")
                     except Exception as send_err:
-                        print(f"Error sending alert: {send_err}")
+                        logger.error("Error sending alert: %s", send_err)
                 return None
             time.sleep(base_delay * (2 ** i))
 
@@ -278,7 +282,7 @@ def poll_telegram_commands():
                     send("❓ Unknown command")
 
         except Exception as e:
-            print(f"Telegram poll error: {e}")
+            logger.error("Telegram poll error: %s", e)
 
         time.sleep(1)
 
@@ -379,7 +383,7 @@ def place_order(symbol, side, qty):
     if LIVE_MODE:
         return call_with_retries(_order, name=f"Binance order {symbol}")
     else:
-        print(f"[SIMULATED] {side} {qty} {symbol}")
+        logger.info("[SIMULATED] %s %s %s", side, qty, symbol)
         return {"simulated": True}
 
 def get_news_headlines(symbol, limit=5):
@@ -438,7 +442,7 @@ def save_price(symbol, price):
         )
         conn.commit()
     except Exception as e:
-        print(f"Price save error: {e}")
+        logger.error("Price save error: %s", e)
     finally:
         try:
             conn.close()
@@ -462,7 +466,7 @@ def load_prices(symbol: str, limit: int):
         rows = [r[0] for r in cur.fetchall()]
         return list(reversed(rows))
     except Exception as e:
-        print(f"Price load error: {e}")
+        logger.error("Price load error: %s", e)
         return []
     finally:
         try:
@@ -521,7 +525,7 @@ def sync_positions_with_exchange():
             for b in account.get("balances", [])
         }
     except Exception as e:
-        print(f"Position sync failed: {e}")
+        logger.error("Position sync failed: %s", e)
         return db_positions
 
     for symbol, pos in list(db_positions.items()):
@@ -556,7 +560,7 @@ def trade():
     if binance_usdt <= 0:
         binance_usdt = balance.get("usdt", START_BALANCE)
     balance["usdt"] = binance_usdt
-    print(f"💵 Binance USDT balance: ${binance_usdt:.2f}")
+    logger.info("💵 Binance USDT balance: $%.2f", binance_usdt)
     
     price_cache = {}
     preload_history()
@@ -564,11 +568,11 @@ def trade():
     for symbol in TRADING_PAIRS:
         price = get_price(symbol)
         if not price or price <= 0:
-            print(f"⚠️ {symbol} skipped — invalid price")
+            logger.warning("⚠️ %s skipped — invalid price", symbol)
             continue
 
         price_cache[symbol] = price
-        print(f"🔍 {symbol} @ ${price:.2f}")
+        logger.info("🔍 %s @ $%.2f", symbol, price)
         headlines = get_news_headlines(symbol)
 
         # Check existing positions first using strategy rules
@@ -593,11 +597,17 @@ def trade():
             profit = current_value - entry_cost
             pnl = (profit / entry_cost) * 100
 
-            print(f"📈 {symbol} Entry=${entry:.2f} → Now=${price:.2f} | PnL={pnl:.2f}%")
+            logger.info(
+                "📈 %s Entry=$%.2f → Now=$%.2f | PnL=%.2f%%",
+                symbol,
+                entry,
+                price,
+                pnl,
+            )
 
             if stop and price <= stop:
                 order_info = place_order(symbol, "sell", qty)
-                print(f"   ↳ order: {order_info}")
+                logger.info("   ↳ order: %s", order_info)
                 trade_id = pos.get("trade_id")
                 sell_value = current_value
                 db.update_trade_pnl(trade_id, profit, profit, pnl)
@@ -613,13 +623,23 @@ def trade():
                 send(
                     f"🛑 STOP {symbol} at ${price:.2f} — PnL: ${profit:.2f} USDT ({pnl:.2f}%) | Balance: ${binance_usdt:.2f} — {now}"
                 )
-                print(f"🛑 STOP {symbol} at ${price:.2f} | PnL: ${profit:.2f} USDT ({pnl:.2f}%)")
-                print(f"   ↳ Balance now ${binance_usdt:.2f} USDT, Total ${total:.2f}")
+                logger.info(
+                    "🛑 STOP %s at $%.2f | PnL: $%.2f USDT (%.2f%%)",
+                    symbol,
+                    price,
+                    profit,
+                    pnl,
+                )
+                logger.info(
+                    "   ↳ Balance now $%.2f USDT, Total $%.2f",
+                    binance_usdt,
+                    total,
+                )
                 continue
 
             if strategy.should_sell(symbol, pos, price, headlines):
                 order_info = place_order(symbol, "sell", qty)
-                print(f"   ↳ order: {order_info}")
+                logger.info("   ↳ order: %s", order_info)
                 trade_id = pos.get("trade_id")
                 sell_value = current_value
                 db.update_trade_pnl(trade_id, profit, profit, pnl)
@@ -636,8 +656,18 @@ def trade():
                 send(
                     f"✅ CLOSE {symbol} at ${price:.2f} — Profit: ${profit:.2f} USDT (+{pnl:.2f}%) | Balance: ${binance_usdt:.2f} — {now}"
                 )
-                print(f"✅ CLOSE {symbol} at ${price:.2f} | Profit: ${profit:.2f} USDT (+{pnl:.2f}%)")
-                print(f"   ↳ Balance now ${binance_usdt:.2f} USDT, Total ${total:.2f}")
+                logger.info(
+                    "✅ CLOSE %s at $%.2f | Profit: $%.2f USDT (+%.2f%%)",
+                    symbol,
+                    price,
+                    profit,
+                    pnl,
+                )
+                logger.info(
+                    "   ↳ Balance now $%.2f USDT, Total $%.2f",
+                    binance_usdt,
+                    total,
+                )
             continue
 
         # For new positions, defer decision to strategy
@@ -649,12 +679,15 @@ def trade():
             p["qty"] * price_cache.get(sym, 0) for sym, p in positions.items()
         )
         remaining_allowance = DAILY_MAX_INVEST - current_invested
-        print(
-            f"💰 Balance: ${binance_usdt:.2f}, Invested: ${current_invested:.2f}, Remaining cap: ${remaining_allowance:.2f}"
+        logger.info(
+            "💰 Balance: $%.2f, Invested: $%.2f, Remaining cap: $%.2f",
+            binance_usdt,
+            current_invested,
+            remaining_allowance,
         )
 
         if remaining_allowance <= 0:
-            print(f"🔒 Skipped {symbol} — daily investment cap reached")
+            logger.info("🔒 Skipped %s — daily investment cap reached", symbol)
             continue
 
         max_trade = min(remaining_allowance, MAX_TRADE_USDT)
@@ -670,7 +703,7 @@ def trade():
        
         if qty <= 0:
             msg = reason or "position size too small"
-            print(f"❌ Skipped {symbol} — {msg}")
+            logger.info("❌ Skipped %s — %s", symbol, msg)
             continue
 
         actual_cost = qty * price * (1 + FEE_RATE)
@@ -682,14 +715,22 @@ def trade():
 
         
         stop_display = f"{stop_loss:.2f}" if stop_loss is not None else "0.0"
-        print(f"🔢 {symbol} → qty={qty}, value={actual_cost:.4f}, stop={stop_display}")
+        logger.info(
+            "🔢 %s → qty=%s, value=%.4f, stop=%s",
+            symbol,
+            qty,
+            actual_cost,
+            stop_display,
+        )
 
         if actual_cost > binance_usdt:
-            print(f"❌ Skipped {symbol} — insufficient balance for ${actual_cost:.2f}")
+            logger.warning(
+                "❌ Skipped %s — insufficient balance for $%.2f", symbol, actual_cost
+            )
             continue
 
         order_info = place_order(symbol, "buy", qty)
-        print(f"   ↳ order: {order_info}")
+        logger.info("   ↳ order: %s", order_info)
 
         trade_id = db.log_trade(symbol, "BUY", qty, price)
         db.upsert_position(symbol, qty, price, stop_loss, trade_id, price)
@@ -711,7 +752,9 @@ def trade():
         send(
             f"🟢 BUY {qty} {symbol} at ${price:.2f} — Value: ${actual_cost:.2f} USDT | Remaining: ${binance_usdt:.2f} — {now}"
         )
-        print(f"✅ BUY {qty} {symbol} at ${price:.2f} (${actual_cost:.2f})")  
+        logger.info(
+            "✅ BUY %s %s at $%.2f ($%.2f)", qty, symbol, price, actual_cost
+        )
 
     # Balance update
     total = update_balance(balance, positions, price_cache)
@@ -721,10 +764,10 @@ def trade():
     )
 
     avg = db.average_profit_last_n_trades(10)
-    print(f"📈 Avg profit last 10 trades: {avg:.2f}%")
+    logger.info("📈 Avg profit last 10 trades: %.2f%%", avg)
 
 def main():
-    print("🤖 Trading bot started.")
+    logger.info("🤖 Trading bot started.")
     send("🤖 Trading bot is live.")
     sync_positions_with_exchange()
     threading.Thread(target=poll_telegram_commands, daemon=True).start()
@@ -732,10 +775,10 @@ def main():
         try:
             trade()
         except Exception as e:
-            print(f"ERROR: {e}")
+            logger.exception("ERROR: %s", e)
             send(f"⚠️ Bot error: {e}")
         time.sleep(300)
-
+            
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Trading bot")
     parser.add_argument(
@@ -743,6 +786,6 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
     if args.summary:
-        print(json.dumps(wallet_summary(), indent=2))
+        logger.info(json.dumps(wallet_summary(), indent=2))
     else:
         main()
