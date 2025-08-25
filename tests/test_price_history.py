@@ -46,12 +46,7 @@ def setup_main(monkeypatch, tmp_path):
 
 def test_save_and_load_prices(monkeypatch, tmp_path):
     main = setup_main(monkeypatch, tmp_path)
-    main.TRADING_PAIRS = ["BTCUSDT", "ETHUSDT", "XRPUSDT", "SOLUSDT", "DOGEUSDT", "ENAUSDT", "PENGUUSDT", "TRXUSDT", 
-                 "ADAUSDT", "PEPEUSDT", "BONKUSDT", "LTCUSDT", "BNBUSDT", "AVAXUSDT", "XLMUSDT", "UNIUSDT", 
-                 "CFXUSDT", "AAVEUSDT", "WIFUSDT", "KERNELUSDT", "BCHUSDT", "ARBUSDT", "ENSUSDT", 
-                 "DOTUSDT", "CKBUSDT", "LINKUSDT", "TONUSDT", "NEARUSDT", "ETCUSDT", "CAKEUSDT", 
-                 "SHIBUSDT", "OPUSDT"]
-
+    
     for i in range(60):
         main.save_price("BTCUSDT", float(i))
         main.save_price("ETHUSDT", float(100 + i))
@@ -145,7 +140,7 @@ def test_save_and_load_prices(monkeypatch, tmp_path):
     assert main.strategy.history["PENGUUSDT"] == prices_pengu
     assert main.strategy.history["TRXUSDT"] == prices_trx
     assert main.strategy.history["ADAUSDT"] == prices_ada
-    assert main.strategy.history["PEPUSDT"] == prices_pepe
+    assert main.strategy.history["PEPEUSDT"] == prices_pepe
     assert main.strategy.history["BONKUSDT"] == prices_bonk
     assert main.strategy.history["LTCUSDT"] == prices_ltc
     assert main.strategy.history["BNBUSDT"] == prices_bnb
@@ -158,7 +153,7 @@ def test_save_and_load_prices(monkeypatch, tmp_path):
     assert main.strategy.history["KERNELUSDT"] == prices_kernel
     assert main.strategy.history["BCHUSDT"] == prices_bch
     assert main.strategy.history["ARBUSDT"] == prices_arb
-    assert main.strategy.history["EnsUSDT"] == prices_ens
+    assert main.strategy.history["ENSUSDT"] == prices_ens
     assert main.strategy.history["DOTUSDT"] == prices_dot
     assert main.strategy.history["CKBUSDT"] == prices_ckb
     assert main.strategy.history["LINKUSDT"] == prices_link
