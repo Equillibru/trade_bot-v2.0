@@ -33,6 +33,16 @@ class MovingAverageCrossStrategy(Strategy):
             return None
         return sum(prices[-window:]) / window
 
+    # -- history management ------------------------------------------------
+    def seed_history(self, symbol: str, prices: Sequence[float]) -> None:
+        """Seed initial price history for ``symbol``.
+
+        This allows external components to preload historical data so that the
+        strategy can evaluate signals on the very first run.
+        """
+
+        self.history[symbol] = list(prices)
+
     # -- Strategy API ------------------------------------------------------
     def should_buy(self, symbol: str, price: float, headlines: Sequence[str]) -> bool:
         # basic news filter
