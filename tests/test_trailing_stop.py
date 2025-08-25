@@ -15,6 +15,7 @@ def test_trailing_stop_updates(monkeypatch, tmp_path):
     monkeypatch.setenv("BINANCE_API_KEY", "k")
     monkeypatch.setenv("BINANCE_SECRET_KEY", "s")
     monkeypatch.setenv("NEWSAPI_KEY", "n")
+    monkeypatch.setenv("TRADING_PAIRS", '["BTCUSDT"]')
     db_file = tmp_path / "trades.db"
     monkeypatch.setenv("TRADE_DB_FILE", str(db_file))
 
