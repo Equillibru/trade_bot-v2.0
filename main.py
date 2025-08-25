@@ -4,6 +4,8 @@ import datetime
 import json
 import sqlite3
 import argparse
+from typing import list
+
 import db
 import requests
 import threading #Telegram two-way communication
@@ -304,9 +306,25 @@ def get_price(symbol):
     price = call_with_retries(_fetch, name=f"Binance price {symbol}")
     if price is not None:
         save_price(symbol, price)
-     
     return price
-    
+
+def fetch_historical_prices(symbol: str, limit: int) -> List[float]:
+    """Fetch recent historical closing prices for ``symbol``.
+
+    Uses Binance 1-minute klines and returns the closing price from each
+    candle. The result contains up to ``limit`` prices, ordered oldest to
+    newest. Network errors are handled via ``call_with_retries``.
+    """
+
+    def _fetch() -> List[float]:
+        klines = client.get_klines(
+            symbol=symbol,
+            interval=Client.KLINE_INTERVAL_1MINUTE,
+            limit=limit,
+        )
+        return [float(k[4]) for k in klines]
+
+    return call_with_retries(_fetch, name=f"Binance klines {symbol}") or []
 def place_order(symbol, side, qty):
     def _order():
         return client.create_order(
@@ -411,14 +429,30 @@ def load_prices(symbol: str, limit: int):
 
 
 def preload_history():
-    """Populate the strategy's in-memory history from stored prices."""
+    """Ensure strategy history and local DB contain recent prices
+    For each configured trading pair, this loads the most recent prices from
+    ``prices.db``. If insufficient history is present it fetches historical
+    data from the exchange first, storing it in the database so subsequent
+    calls do not require another fetch.
+    """
+
+
     history_limit = max(
         getattr(strategy, "short_window", 0), getattr(strategy, "long_window", 0)
     )
     for sym in TRADING_PAIRS:
         prices = load_prices(sym, history_limit)
+        if len(prices) < history_limit:
+            fetched = fetch_historical_prices(sym, history_limit)
+            for p in fetched:
+                save_price(sym, p)
+            prices = load_prices(sym, history_limit)
+            
         if prices:
-            strategy.history[sym] = prices
+            if hasattr(strategy, "seed_history"):
+                strategy.seed_history(sym, prices)
+            else:
+                strategy.history[sym] = prices
             
 def update_balance(balance, positions, price_cache):
     """Recalculate total balance using live USDT value and persist it."""
