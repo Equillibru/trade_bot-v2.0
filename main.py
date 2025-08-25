@@ -213,9 +213,8 @@ def poll_telegram_commands():
                     sell_value = qty * price * (1 - FEE_RATE)
                     profit = sell_value - entry_cost
                     
-                    pnl_pct = (
-                        (profit / entry_cost * 100 if entry_cost else 0
-                    )
+                    pnl_pct = profit / entry_cost * 100 if entry_cost else 0
+                    
                     trade_id = pos.get("trade_id")
                     db.update_trade_pnl(trade_id, profit, profit, pnl_pct)
                     db.remove_position(symbol)
@@ -597,13 +596,14 @@ def trade():
             print(f"❌ Skipped {symbol} — {msg}")
             continue
 
-        actual_usdt = qty * price * (1 + FEE_RATE)
+        actual_cost = qty * price * (1 + FEE_RATE)
 
         if actual_cost < MIN_TRADE_USDT:
             msg = reason or f"trade value ${actual_cost:.2f} below minimum"
             print(f"❌ Skipped {symbol} — {msg}")
             continue
-            
+
+        
         stop_display = f"{stop_loss:.2f}" if stop_loss is not None else "0.0"
         print(f"🔢 {symbol} → qty={qty}, value={actual_cost:.4f}, stop={stop_display}")
 
