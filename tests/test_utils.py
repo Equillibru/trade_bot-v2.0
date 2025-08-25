@@ -508,4 +508,6 @@ def test_trade_handles_multiple_pairs(tmp_path, monkeypatch, main_module):
     assert "CAKEUSDT" in positions
     assert "SHIBUSDT" in positions
     assert "OPUSDT" in positions
-    
+
+
+
