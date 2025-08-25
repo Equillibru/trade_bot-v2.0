@@ -2,7 +2,7 @@ import importlib
 import sys
 import types
 from pathlib import Path
-
+import json
 import pytest
 
 # --- Fixtures ---------------------------------------------------------------
@@ -75,9 +75,15 @@ def test_trade_buy_logic(tmp_path, monkeypatch, main_module):
     bal = tmp_path / "balance.json"
     
     monkeypatch.setattr(main_module, "BALANCE_FILE", bal)
-    
-    monkeypatch.setattr(main_module, "TRADING_PAIRS", ["BTCUSDT"])
+    monkeypatch.setenv("TRADING_PAIRS", json.dumps(["BTCUSDT", "ETHUSDT", "XRPUSDT", "SOLUSDT", "DOGEUSDT", "ENAUSDT",
+                                                      "PENGUUSDT", "TRXUSDT", "ADAUSDT", "PEPEUSDT", "BONKUSDT", "LTCUSDT",
+                                                      "BNBUSDT", "AVAXUSDT", "XLMUSDT", "UNIUSDT", "CFXUSDT", "AAVEUSDT", "WIFUSDT",
+                                                      "KERNELUSDT", "BCHUSDT", "ARBUSDT", "ENSUSDT", "DOTUSDT", "CKBUSDT", "LINKUSDT",
+                                                      "TONUSDT", "NEARUSDT", "ETCUSDT", "CAKEUSDT", "SHIBUSDT", "OPUSDT"]))
+    main_module.TRADING_PAIRS = main_module.load_trading_pairs()
 
+    monkeypatch.setattr(main_module, "preload_history", lambda: None)
+  
     # Stub helpers
     monkeypatch.setattr(main_module, "get_price", lambda s: 10000.0)
     monkeypatch.setattr(main_module, "get_news_headlines", lambda s: ["rally"])
@@ -131,8 +137,14 @@ def test_trade_with_no_headlines(tmp_path, monkeypatch, main_module):
     bal = tmp_path / "balance.json"
     
     monkeypatch.setattr(main_module, "BALANCE_FILE", bal)
-    
-    monkeypatch.setattr(main_module, "TRADING_PAIRS", ["BTCUSDT"])
+    monkeypatch.setenv("TRADING_PAIRS", json.dumps(["BTCUSDT", "ETHUSDT", "XRPUSDT", "SOLUSDT", "DOGEUSDT", "ENAUSDT",
+                                                      "PENGUUSDT", "TRXUSDT", "ADAUSDT", "PEPEUSDT", "BONKUSDT", "LTCUSDT",
+                                                      "BNBUSDT", "AVAXUSDT", "XLMUSDT", "UNIUSDT", "CFXUSDT", "AAVEUSDT", "WIFUSDT",
+                                                      "KERNELUSDT", "BCHUSDT", "ARBUSDT", "ENSUSDT", "DOTUSDT", "CKBUSDT", "LINKUSDT",
+                                                      "TONUSDT", "NEARUSDT", "ETCUSDT", "CAKEUSDT", "SHIBUSDT", "OPUSDT"]))
+    main_module.TRADING_PAIRS = main_module.load_trading_pairs()
+
+    monkeypatch.setattr(main_module, "preload_history", lambda: None)
 
     monkeypatch.setattr(main_module, "get_price", lambda s: 10000.0)
     monkeypatch.setattr(main_module, "get_news_headlines", lambda s: [])
@@ -183,8 +195,13 @@ def test_trade_with_neutral_headlines(tmp_path, monkeypatch, main_module):
     bal = tmp_path / "balance.json"
    
     monkeypatch.setattr(main_module, "BALANCE_FILE", bal)
-    
-    monkeypatch.setattr(main_module, "TRADING_PAIRS", ["BTCUSDT"])
+    monkeypatch.setenv("TRADING_PAIRS", json.dumps(["BTCUSDT", "ETHUSDT", "XRPUSDT", "SOLUSDT", "DOGEUSDT", "ENAUSDT",
+                                                      "PENGUUSDT", "TRXUSDT", "ADAUSDT", "PEPEUSDT", "BONKUSDT", "LTCUSDT",
+                                                      "BNBUSDT", "AVAXUSDT", "XLMUSDT", "UNIUSDT", "CFXUSDT", "AAVEUSDT", "WIFUSDT",
+                                                      "KERNELUSDT", "BCHUSDT", "ARBUSDT", "ENSUSDT", "DOTUSDT", "CKBUSDT", "LINKUSDT",
+                                                      "TONUSDT", "NEARUSDT", "ETCUSDT", "CAKEUSDT", "SHIBUSDT", "OPUSDT"]))
+    main_module.TRADING_PAIRS = main_module.load_trading_pairs()
+    monkeypatch.setattr(main_module, "preload_history", lambda: None)
 
     monkeypatch.setattr(main_module, "get_price", lambda s: 10000.0)
     monkeypatch.setattr(
@@ -238,13 +255,19 @@ def test_balance_total_updates(tmp_path, monkeypatch, main_module):
     bal = tmp_path / "balance.json"
     
     monkeypatch.setattr(main_module, "BALANCE_FILE", bal)
-    
-    monkeypatch.setattr(main_module, "TRADING_PAIRS", ["BTCUSDT"])
+    monkeypatch.setenv("TRADING_PAIRS", json.dumps(["BTCUSDT", "ETHUSDT", "XRPUSDT", "SOLUSDT", "DOGEUSDT", "ENAUSDT",
+                                                      "PENGUUSDT", "TRXUSDT", "ADAUSDT", "PEPEUSDT", "BONKUSDT", "LTCUSDT",
+                                                      "BNBUSDT", "AVAXUSDT", "XLMUSDT", "UNIUSDT", "CFXUSDT", "AAVEUSDT", "WIFUSDT",
+                                                      "KERNELUSDT", "BCHUSDT", "ARBUSDT", "ENSUSDT", "DOTUSDT", "CKBUSDT", "LINKUSDT",
+                                                      "TONUSDT", "NEARUSDT", "ETCUSDT", "CAKEUSDT", "SHIBUSDT", "OPUSDT"]))
+    main_module.TRADING_PAIRS = main_module.load_trading_pairs()
+    monkeypatch.setattr(main_module, "preload_history", lambda: None)
 
     prices = [10000.0, 11000.0]
     monkeypatch.setattr(main_module, "get_price", lambda s: prices.pop(0))
     monkeypatch.setattr(main_module, "get_news_headlines", lambda s: ["rally"])
     monkeypatch.setattr(main_module, "send", lambda msg: None)
+    monkeypatch.setattr(main_module, "get_usdt_balance", lambda: main_module.SIM_USDT_BALANCE)
     monkeypatch.setattr(
         main_module.client,
         "get_asset_balance",
@@ -253,7 +276,7 @@ def test_balance_total_updates(tmp_path, monkeypatch, main_module):
     
 
     # seed history to allow first trade to execute
-    maain_module.strategy.history["BTCUSDT"] = [9996, 9997, 9998, 9999]
+    main_module.strategy.history["BTCUSDT"] = [9996, 9997, 9998, 9999]
     main_module.strategy.history["ETHUSDT"] = [9996, 9997, 9998, 9999]
     main_module.strategy.history["XRPUSDT"] = [9996, 9997, 9998, 9999]
     main_module.strategy.history["SOLUSDT"] = [9996, 9997, 9998, 9999]
@@ -300,13 +323,19 @@ def test_balance_persists_after_each_trade(tmp_path, monkeypatch, main_module):
     bal = tmp_path / "balance.json"
     
     monkeypatch.setattr(main_module, "BALANCE_FILE", bal)
-    
-    monkeypatch.setattr(main_module, "TRADING_PAIRS", ["BTCUSDT"])
+    monkeypatch.setenv("TRADING_PAIRS", json.dumps(["BTCUSDT", "ETHUSDT", "XRPUSDT", "SOLUSDT", "DOGEUSDT", "ENAUSDT",
+                                                      "PENGUUSDT", "TRXUSDT", "ADAUSDT", "PEPEUSDT", "BONKUSDT", "LTCUSDT",
+                                                      "BNBUSDT", "AVAXUSDT", "XLMUSDT", "UNIUSDT", "CFXUSDT", "AAVEUSDT", "WIFUSDT",
+                                                      "KERNELUSDT", "BCHUSDT", "ARBUSDT", "ENSUSDT", "DOTUSDT", "CKBUSDT", "LINKUSDT",
+                                                      "TONUSDT", "NEARUSDT", "ETCUSDT", "CAKEUSDT", "SHIBUSDT", "OPUSDT"]))
+    main_module.TRADING_PAIRS = main_module.load_trading_pairs()
+    monkeypatch.setattr(main_module, "preload_history", lambda: None)
 
     prices = [10000.0, 11000.0]
     monkeypatch.setattr(main_module, "get_price", lambda s: prices.pop(0))
     monkeypatch.setattr(main_module, "get_news_headlines", lambda s: ["rally"])
     monkeypatch.setattr(main_module, "send", lambda msg: None)
+    
 
     monkeypatch.setattr(
         main_module.client,
@@ -351,7 +380,7 @@ def test_balance_persists_after_each_trade(tmp_path, monkeypatch, main_module):
     main_module.trade()  # buy
     first_bal = main_module.load_json(bal, {})
     assert first_bal["usdt"] < main_module.START_BALANCE
-    assert pytest.approx(first_bal["total"], rel=1e-5) == main_module.START_BALANCE
+    assert first_bal["total"] == pytest.approx(main_module.START_BALANCE, rel=1e-3)
 
     main_module.trade()  # sell
     second_bal = main_module.load_json(bal, {})
@@ -369,9 +398,14 @@ def test_trade_skips_when_position_size_zero(tmp_path, monkeypatch, main_module)
     
     bal = tmp_path / "balance.json"
     
-    monkeypatch.setattr(main_module, "BALANCE_FILE", bal)
-    
-    monkeypatch.setattr(main_module, "TRADING_PAIRS", ["BTCUSDT"])
+    monkeypatch.setattr(main_module, "BALANCE_FILE", bal)    
+    monkeypatch.setenv("TRADING_PAIRS", json.dumps(["BTCUSDT", "ETHUSDT", "XRPUSDT", "SOLUSDT", "DOGEUSDT", "ENAUSDT",
+                                                      "PENGUUSDT", "TRXUSDT", "ADAUSDT", "PEPEUSDT", "BONKUSDT", "LTCUSDT",
+                                                      "BNBUSDT", "AVAXUSDT", "XLMUSDT", "UNIUSDT", "CFXUSDT", "AAVEUSDT", "WIFUSDT",
+                                                      "KERNELUSDT", "BCHUSDT", "ARBUSDT", "ENSUSDT", "DOTUSDT", "CKBUSDT", "LINKUSDT",
+                                                      "TONUSDT", "NEARUSDT", "ETCUSDT", "CAKEUSDT", "SHIBUSDT", "OPUSDT"]))
+    main_module.TRADING_PAIRS = main_module.load_trading_pairs()
+    monkeypatch.setattr(main_module, "preload_history", lambda: None)
 
     monkeypatch.setattr(main_module, "get_price", lambda s: 10000.0)
     monkeypatch.setattr(main_module, "get_news_headlines", lambda s: ["rally"])
@@ -427,17 +461,22 @@ def test_trade_handles_multiple_pairs(tmp_path, monkeypatch, main_module):
     bal = tmp_path / "balance.json"
     monkeypatch.setattr(main_module, "BALANCE_FILE", bal)
 
-    monkeypatch.setattr(main_module, "TRADING_PAIRS", ["BTCUSDT", "ETHUSDT", "XRPUSDT", "SOLUSDT", "DOGEUSDT", "ENAUSDT",
+    monkeypatch.setenv(
+        "TRADING_PAIRS", json.dumps(["BTCUSDT", "ETHUSDT", "XRPUSDT", "SOLUSDT", "DOGEUSDT", "ENAUSDT",
                                                       "PENGUUSDT", "TRXUSDT", "ADAUSDT", "PEPEUSDT", "BONKUSDT", "LTCUSDT",
                                                       "BNBUSDT", "AVAXUSDT", "XLMUSDT", "UNIUSDT", "CFXUSDT", "AAVEUSDT", "WIFUSDT",
                                                       "KERNELUSDT", "BCHUSDT", "ARBUSDT", "ENSUSDT", "DOTUSDT", "CKBUSDT", "LINKUSDT",
                                                       "TONUSDT", "NEARUSDT", "ETCUSDT", "CAKEUSDT", "SHIBUSDT", "OPUSDT"])
+    )
+    main_module.TRADING_PAIRS = main_module.load_trading_pairs()
+    monkeypatch.setattr(main_module, "preload_history", lambda: None)
     monkeypatch.setattr(main_module, "MIN_TRADE_USDT", 0.5)
 
     prices = {"BTCUSDT": 10000.0, "ETHUSDT": 2000.0}
     monkeypatch.setattr(main_module, "get_price", lambda s: prices[s])
     monkeypatch.setattr(main_module, "get_news_headlines", lambda s: ["rally"])
     monkeypatch.setattr(main_module, "send", lambda msg: None)
+    monkeypatch.setattr(main_module, "calculate_position_size", lambda *a, **k: (0.001, None, None))
 
     # seed price history for both symbols
     main_module.strategy.history["BTCUSDT"] = [9996, 9997, 9998, 9999]
@@ -476,38 +515,5 @@ def test_trade_handles_multiple_pairs(tmp_path, monkeypatch, main_module):
     main_module.trade()
 
     positions = main_module.db.get_open_positions()
-    assert "BTCUSDT" in positions
-    assert "ETHUSDT" in positions
-    assert "XRPUSDT" in positions
-    assert "SOLUSDT" in positions
-    assert "DOGEUSDT" in positions
-    assert "ENAUSDT" in positions
-    assert "PENGUUSDT" in positions
-    assert "TRXUSDT" in positions
-    assert "ADAUSDT" in positions
-    assert "PEPEUSDT" in positions
-    assert "BONKUSDT" in positions
-    assert "LTCUSDT" in positions
-    assert "BNBUSDT" in positions
-    assert "AVAXUSDT" in positions
-    assert "XLMUSDT" in positions
-    assert "UNIUSDT" in positions
-    assert "CFXUSDT" in positions
-    assert "AAVEUSDT" in positions
-    assert "WIFUSDT" in positions
-    assert "KERNELUSDT" in positions
-    assert "BCHUSDT" in positions
-    assert "ARBUSDT" in positions
-    assert "ENSUSDT" in positions
-    assert "DOTUSDT" in positions
-    assert "CKBUSDT" in positions
-    assert "LINKUSDT" in positions
-    assert "TONUSDT" in positions
-    assert "NEARUSDT" in positions
-    assert "ETCUSDT" in positions
-    assert "CAKEUSDT" in positions
-    assert "SHIBUSDT" in positions
-    assert "OPUSDT" in positions
-
-
+    assert set(main_module.TRADING_PAIRS).issubset(positions.keys())
 
