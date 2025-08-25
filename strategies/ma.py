@@ -43,8 +43,8 @@ class MovingAverageCrossStrategy(Strategy):
         prices.append(price)
 
         if len(prices) < self.long_window:
-            # not enough data yet – allow an initial entry
-            return True
+            # not enough data yet – wait for sufficient history
+            return False
 
         short = self._ma(prices, self.short_window)
         long = self._ma(prices, self.long_window)
