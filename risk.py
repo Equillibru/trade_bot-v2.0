@@ -16,6 +16,7 @@ def calculate_position_size(
     stop_pct: float = 0.02,
     min_trade: float = 1.0,
     max_trade: float = 10.0,
+    fee_rate : float = 0.0,
 ):
     """Compute position size and stop loss based on risk parameters.
 
@@ -56,10 +57,12 @@ def calculate_position_size(
         return 0.0, None, msg
 
     stop_loss = price * (1 - stop_pct)
-    qty = risk_amount / (price - stop_loss)
+    per_unit_risk = (price - stop_loss) + (price + stop_loss) * fee_rate
+    qty = risk_amount / per_unit_risk
     trade_value = qty * price
 
-    trade_value = min(max_trade, trade_value, balance_usdt)
+    max_notional = min(max_trade, balance_usdt / (1 + fee_rate))
+    trade_value = min(trade_value, max_notional)
     if trade_value < min_trade:
         msg = (
             f"Trade value ${trade_value:.2f} below minimum trade ${min_trade:.2f}"
