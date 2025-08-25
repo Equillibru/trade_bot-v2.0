@@ -1,4 +1,5 @@
 import importlib
+import logging
 import sys
 import types
 from pathlib import Path
@@ -70,7 +71,7 @@ def test_log_trade(main_module):
     assert hist and hist[0]["id"] == trade_id
 
 
-def test_trade_buy_logic(tmp_path, monkeypatch, main_module):
+def test_trade_buy_logic(tmp_path, monkeypatch, main_module, caplog):
     
     bal = tmp_path / "balance.json"
     
@@ -124,13 +125,15 @@ def test_trade_buy_logic(tmp_path, monkeypatch, main_module):
     main_module.strategy.history["SHIBUSDT"] = [9996, 9997, 9998, 9999]
     main_module.strategy.history["OPUSDT"] = [9996, 9997, 9998, 9999]
 
-    main_module.trade()
+    with caplog.at_level(logging.INFO, logger="main"):
+        main_module.trade()
 
     positions = main_module.db.get_open_positions()
     assert "BTCUSDT" in positions
     trades = main_module.db.get_trade_history("BTCUSDT")
     assert any(entry["side"] == "BUY" for entry in trades)
     assert sent  # a telegram message was "sent"
+    assert any("BUY" in r.message for r in caplog.records)
 
 def test_trade_with_no_headlines(tmp_path, monkeypatch, main_module):
     
@@ -273,7 +276,8 @@ def test_balance_total_updates(tmp_path, monkeypatch, main_module):
         "get_asset_balance",
         lambda asset: {"free": str(main_module.START_BALANCE)},
     )
-    
+    monkeypatch.setattr(main_module.strategy, "should_buy", lambda s, price, h: True)
+    monkeypatch.setattr(main_module.strategy, "should_sell", lambda s, pos, price, h: True)
 
     # seed history to allow first trade to execute
     main_module.strategy.history["BTCUSDT"] = [9996, 9997, 9998, 9999]
@@ -342,6 +346,8 @@ def test_balance_persists_after_each_trade(tmp_path, monkeypatch, main_module):
         "get_asset_balance",
         lambda asset: {"free": str(main_module.START_BALANCE)},
     )
+    monkeypatch.setattr(main_module.strategy, "should_buy", lambda s, price, h: True)
+    monkeypatch.setattr(main_module.strategy, "should_sell", lambda s, pos, price, h: True)
 
     # provide history for moving averages
     main_module.strategy.history["BTCUSDT"] = [9996, 9997, 9998, 9999]
@@ -477,6 +483,7 @@ def test_trade_handles_multiple_pairs(tmp_path, monkeypatch, main_module):
     monkeypatch.setattr(main_module, "get_news_headlines", lambda s: ["rally"])
     monkeypatch.setattr(main_module, "send", lambda msg: None)
     monkeypatch.setattr(main_module, "calculate_position_size", lambda *a, **k: (0.001, None, None))
+    monkeypatch.setattr(main_module.strategy, "should_buy", lambda s, price, h: True)
 
     # seed price history for both symbols
     main_module.strategy.history["BTCUSDT"] = [9996, 9997, 9998, 9999]
