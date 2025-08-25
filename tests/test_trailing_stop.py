@@ -50,7 +50,6 @@ def test_trailing_stop_updates(monkeypatch, tmp_path):
     monkeypatch.setattr(bc, "Client", DummyClient)
 
     main = importlib.import_module("main")
-    monkeypatch.setattr(main, "TRADING_PAIRS", ["BTCUSDT"])
     monkeypatch.setattr(main, "load_json", lambda path, default: default)
     monkeypatch.setattr(main, "preload_history", lambda: None)
     monkeypatch.setattr(main, "get_usdt_balance", lambda: 1000.0)
