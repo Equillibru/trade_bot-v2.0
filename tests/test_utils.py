@@ -84,6 +84,9 @@ def test_trade_buy_logic(tmp_path, monkeypatch, main_module):
     sent = []
     monkeypatch.setattr(main_module, "send", lambda msg: sent.append(msg))
 
+      # build price history so strategy has sufficient data
+    main_module.strategy.history["BTCUSDT"] = [9996, 9997, 9998, 9999]
+
     main_module.trade()
 
     positions = main_module.db.get_open_positions()
@@ -103,6 +106,9 @@ def test_trade_with_no_headlines(tmp_path, monkeypatch, main_module):
     monkeypatch.setattr(main_module, "get_price", lambda s: 10000.0)
     monkeypatch.setattr(main_module, "get_news_headlines", lambda s: [])
     monkeypatch.setattr(main_module, "send", lambda msg: None)
+
+    # prepopulate history to trigger buy
+    main_module.strategy.history["BTCUSDT"] = [9996, 9997, 9998, 9999]
 
     main_module.trade()
 
@@ -126,6 +132,8 @@ def test_trade_with_neutral_headlines(tmp_path, monkeypatch, main_module):
     )
     monkeypatch.setattr(main_module, "send", lambda msg: None)
 
+    # ensure enough price history for a buy signal
+    main_module.strategy.history["BTCUSDT"] = [9996, 9997, 9998, 9999]
     main_module.trade()
 
     positions = main_module.db.get_open_positions()
@@ -145,6 +153,9 @@ def test_balance_total_updates(tmp_path, monkeypatch, main_module):
     monkeypatch.setattr(main_module, "get_news_headlines", lambda s: ["rally"])
     monkeypatch.setattr(main_module, "send", lambda msg: None)
 
+    # seed history to allow first trade to execute
+    main_module.strategy.history["BTCUSDT"] = [9996, 9997, 9998, 9999]
+    
     main_module.trade()  # open
     main_module.trade()  # close with profit
 
@@ -167,6 +178,14 @@ def test_balance_persists_after_each_trade(tmp_path, monkeypatch, main_module):
     monkeypatch.setattr(main_module, "get_news_headlines", lambda s: ["rally"])
     monkeypatch.setattr(main_module, "send", lambda msg: None)
 
+    monkeypatch.setattr(
+        main_module.client,
+        "get_asset_balance",
+        lambda asset: {"free": str(main_module.START_BALANCE)},
+    )
+
+    # provide history for moving averages
+    main_module.strategy.history["BTCUSDT"] = [9996, 9997, 9998, 9999]
     main_module.trade()  # buy
     first_bal = main_module.load_json(bal, {})
     assert first_bal["usdt"] < main_module.START_BALANCE
@@ -201,6 +220,9 @@ def test_trade_skips_when_position_size_zero(tmp_path, monkeypatch, main_module)
     )
     monkeypatch.setattr(main_module, "send", lambda msg: None)
 
+    # history ensures strategy would buy if size were nonzero
+    main_module.strategy.history["BTCUSDT"] = [9996, 9997, 9998, 9999]
+    
     main_module.trade()
 
     positions = main_module.db.get_open_positions()
