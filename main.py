@@ -57,6 +57,7 @@ MIN_TRADE_USDT = 1.0
 MAX_TRADE_USDT = 10.0
 RISK_PER_TRADE = 0.01  # risk 1% of available balance per trade
 STOP_LOSS_PCT = 0.02   # 2% stop loss below entry
+RISK_REWARD = 2.0
 TRADING_PAIRS = ["BTCUSDT", "ETHUSDT", "XRPUSDT", "SOLUSDT", "DOGEUSDT", "ENAUSDT", "PENGUUSDT", "TRXUSDT", 
                  "ADAUSDT", "PEPEUSDT", "BONKUSDT", "LTCUSDT", "BNBUSDT", "AVAXUSDT", "XLMUSDT", "UNIUSDT", 
                  "CFXUSDT", "AAVEUSDT", "WIFUSDT", "KERNELUSDT", "BCHUSDT", "ARBUSDT", "ENSUSDT", 
@@ -67,7 +68,9 @@ bad_words = ["lawsuit", "ban", "hack", "crash", "regulation", "investigation"]
  # good_words = ["surge", "rally", "gain", "partnership", "bullish", "upgrade", "adoption"] - relaxing the news filter so trades proceed unless negative words are detected
 # Strategy selection via environment variable
 STRATEGY_NAME = os.getenv("STRATEGY_NAME", "ma").lower()
-PROFIT_TARGET_PCT = float(os.getenv("PROFIT_TARGET_PCT", "1.0"))
+PROFIT_TARGET_PCT = float(
+    os.getenv("PROFIT_TARGET_PCT", STOP_LOSS_PCT * 100 * RISK_REWARD)
+)
 
 def _init_strategy(name: str) -> Strategy:
     if name == "ma":
