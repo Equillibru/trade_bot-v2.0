@@ -36,4 +36,4 @@ def test_price_cache_updates(monkeypatch):
 
         assert price_stream.get_latest_price("BTCUSDT") == 123.45
     finally:
-        price_stream.latest_prices.clear()
+        price_stream.stop_stream()
