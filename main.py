@@ -163,6 +163,21 @@ def send(msg):
 
     call_with_retries(_send, name="Telegram", alert=False)
 
+def send_poll(question, options, **kwargs):
+    """Send a poll message to the configured Telegram chat."""
+
+    def _send():
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPoll"
+        data = {
+            "chat_id": TELEGRAM_CHAT_ID,
+            "question": question,
+            "options": json.dumps(options),
+        }
+        data.update(kwargs)
+        requests.post(url, data=data, timeout=10)
+
+    call_with_retries(_send, name="Telegram", alert=False)
+
 def poll_telegram_commands():
     """Listen for manual trade commands sent via Telegram."""
     global SIM_USDT_BALANCE
@@ -184,7 +199,7 @@ def poll_telegram_commands():
                 text = (msg.get("text") or "").strip()
                 parts = text.split()
                 if len(parts) != 3:
-                    send("❓ Use BUY/SELL <symbol> <qty>")
+                    send_poll("Select action", ["BUY", "SELL"])
                     continue
 
                 cmd, symbol, qty_str = parts
@@ -279,7 +294,7 @@ def poll_telegram_commands():
                     )
 
                 else:
-                    send("❓ Unknown command")
+                    send_poll("Unknown command", ["BUY", "SELL"])
 
         except Exception as e:
             logger.error("Telegram poll error: %s", e)
@@ -765,7 +780,7 @@ def trade():
         )
         break
 
-    TRADING_PAIR = list(positions.keys())
+    TRADING_PAIRS = list(positions.keys())
 
     # Balance update
     total = update_balance(balance, positions, price_cache)
