@@ -12,10 +12,10 @@ logger = logging.getLogger(__name__)
 def calculate_position_size(
     balance_usdt: float,
     price: float,
-    risk_pct: float = 0.01,
+    risk_pct: float = 0.02,
     stop_pct: float = 0.02,
     min_trade: float = 1.0,
-    max_trade: float = 10.0,
+    max_trade: float = 20.0,
     fee_rate : float = 0.0,
 ):
     """Compute position size and stop loss based on risk parameters.
