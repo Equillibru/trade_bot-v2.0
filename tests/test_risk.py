@@ -16,7 +16,7 @@ def test_basic_position_size():
         100.0,
         50.0,
         risk_pct=0.01,
-        stop_pct=0.02,
+        stop_distance=1.0,
         min_trade=1.0,
         max_trade=100,
         fee_rate=FEE_RATE,
@@ -28,7 +28,7 @@ def test_basic_position_size():
 
 def test_zero_balance():
     qty, stop, msg = calculate_position_size(
-        0.0, 50.0, risk_pct=0.01, stop_pct=0.02, min_trade=1.0, fee_rate=FEE_RATE
+        0.0, 50.0, risk_pct=0.01, stop_distance=1.0, min_trade=1.0, fee_rate=FEE_RATE
     )
     assert qty == 0.0
     assert stop is None
@@ -37,7 +37,7 @@ def test_zero_balance():
 
 def test_risk_amount_below_min_trade():
     qty, stop, msg = calculate_position_size(
-        5.0, 50.0, risk_pct=0.01, stop_pct=0.02, min_trade=1.0
+        5.0, 50.0, risk_pct=0.01, stop_distance=1.0, min_trade=1.0
     )
     assert qty == 0.0
     assert stop is None
@@ -48,7 +48,7 @@ def test_trade_value_below_min_trade():
         100.0,
         50.0,
         risk_pct=0.01,
-        stop_pct=0.02,
+        stop_distance=1.0,
         min_trade=1.0,
         max_trade=0.5,
         fee_rate=FEE_RATE,
@@ -64,7 +64,7 @@ def test_zero_qty_returns_message_after_rounding():
         100.0,
         20_000_000.0,
         risk_pct=0.01,
-        stop_pct=0.02,
+        stop_distance=400_000.0,
         min_trade=1.0,
         max_trade=10.0,
         fee_rate=FEE_RATE,
@@ -79,7 +79,7 @@ def test_respects_max_trade():
         1000.0,
         10.0,
         risk_pct=0.05,
-        stop_pct=0.01,
+        stop_distance=0.1,
         min_trade=1.0,
         max_trade=100,
         fee_rate=FEE_RATE,
