@@ -60,10 +60,13 @@ SIM_USDT_BALANCE = START_BALANCE
 MIN_TRADE_USDT = 1.0
 MAX_TRADE_USDT = 20.0
 RISK_PER_TRADE = 0.02  # risk 1% of available balance per trade
-STOP_LOSS_PCT = 0.02   # 2% stop loss below entry
 RISK_REWARD = 2.0
 FEE_RATE = 0.001
 MAX_ORDERS_PER_CYCLE = 1
+
+# Volatility-based stop configuration
+STOP_ATR_PERIOD = int(os.getenv("STOP_ATR_PERIOD", "14"))
+STOP_ATR_MULT = float(os.getenv("STOP_ATR_MULT", "2.0"))
 
 # Default trading pairs used when no configuration is supplied
 DEFAULT_TRADING_PAIRS = [
@@ -119,9 +122,7 @@ bad_words = ["lawsuit", "ban", "hack", "crash", "regulation", "investigation"]
  # good_words = ["surge", "rally", "gain", "partnership", "bullish", "upgrade", "adoption"] - relaxing the news filter so trades proceed unless negative words are detected
 # Strategy selection via environment variable
 STRATEGY_NAME = os.getenv("STRATEGY_NAME", "ma").lower()
-PROFIT_TARGET_PCT = float(
-    os.getenv("PROFIT_TARGET_PCT", STOP_LOSS_PCT * 100 * RISK_REWARD)
-)
+PROFIT_TARGET_PCT = float(os.getenv("PROFIT_TARGET_PCT", "4.0"))
 
 def _init_strategy(name: str) -> Strategy:
     if name == "ma":
@@ -156,6 +157,39 @@ def call_with_retries(func, attempts=3, base_delay=1, name="request", alert=True
                         logger.error("Error sending alert: %s", send_err)
                 return None
             time.sleep(base_delay * (2 ** i))
+
+def get_atr(symbol: str, period: int) -> float | None:
+    """Fetch Average True Range for ``symbol`` over ``period`` candles."""
+
+    def _fetch():
+        klines = client.get_klines(
+            symbol=symbol, interval=Client.KLINE_INTERVAL_1HOUR, limit=period + 1
+        )
+        if not klines or len(klines) < period + 1:
+            return None
+        trs = []
+        prev_close = float(klines[0][4])
+        for k in klines[1:]:
+            high = float(k[2])
+            low = float(k[3])
+            close = float(k[4])
+            tr = max(high, prev_close) - min(low, prev_close)
+            trs.append(tr)
+            prev_close = close
+        return sum(trs) / len(trs) if trs else None
+
+    return call_with_retries(_fetch, name=f"ATR {symbol}", alert=False)
+
+
+def get_stop_distance(symbol: str, price: float) -> float:
+    """Determine stop distance based on ATR and configuration."""
+
+    period = int(os.getenv(f"STOP_ATR_PERIOD_{symbol}", STOP_ATR_PERIOD))
+    mult = float(os.getenv(f"STOP_ATR_MULT_{symbol}", STOP_ATR_MULT))
+    atr = get_atr(symbol, period)
+    if not atr or price <= 0:
+        return price * 0.02  # fallback to 2% if ATR unavailable
+    return atr * mult
 
 def send(msg):
     def _send():
@@ -607,11 +641,19 @@ def sync_positions_with_exchange():
                     pos.get("trail_price", pos["entry"]),
                 )
                 db_positions[symbol]["qty"] = exch_qty
+    for p in db_positions.values():
+        stop = p.get("stop_loss")
+        trail = p.get("trail_price", p.get("entry"))
+        p["stop_distance"] = trail - stop if stop is not None else None
     return db_positions
 
 def trade():
     global SIM_USDT_BALANCE
     positions = db.get_open_positions()
+    for p in positions.values():
+        stop = p.get("stop_loss")
+        trail = p.get("trail_price", p.get("entry"))
+        p["stop_distance"] = trail - stop if stop is not None else None
     balance = load_json(
         BALANCE_FILE,
         {"usdt": START_BALANCE, "total": START_BALANCE},
@@ -655,9 +697,13 @@ def trade():
             entry = pos["entry"]
             qty = pos["qty"]
             trail = pos.get("trail_price", entry)
+            stop_distance = pos.get("stop_distance")
+            if stop_distance is None:
+                stop_distance = get_stop_distance(symbol, price)
+                pos["stop_distance"] = stop_distance
             if price > trail:
                 trail = price
-                stop = trail * (1 - STOP_LOSS_PCT)
+                stop = trail - stop_distance
                 pos["trail_price"] = trail
                 pos["stop_loss"] = stop
                 db.upsert_position(
@@ -690,11 +736,11 @@ def trade():
                     db.remove_position(symbol)
                     del positions[symbol]
 
-                if not LIVE_MODE:
+                    if not LIVE_MODE:
                         SIM_USDT_BALANCE += sell_value
                         client.get_asset_balance = lambda asset: {"free": str(SIM_USDT_BALANCE)}
 
-                total = update_balance(balance, positions, price_cache)
+                    total = update_balance(balance, positions, price_cache)
                     binance_usdt = balance["usdt"]
                     send(
                         f"🛑 STOP {symbol} at ${price:.2f} — PnL: ${profit:.2f} USDT ({pnl:.2f}%) | Balance: ${binance_usdt:.2f} — {now}"
@@ -726,7 +772,7 @@ def trade():
                     db.remove_position(symbol)
                     del positions[symbol]
 
-                if not LIVE_MODE:
+                    if not LIVE_MODE:
                         SIM_USDT_BALANCE += sell_value
                         client.get_asset_balance = lambda asset: {"free": str(SIM_USDT_BALANCE)}
 
@@ -778,11 +824,12 @@ def trade():
             continue
 
         max_trade = min(remaining_allowance, MAX_TRADE_USDT)
+        stop_distance = get_stop_distance(symbol, price)
         qty, stop_loss, reason = calculate_position_size(
             binance_usdt,
             price,
             RISK_PER_TRADE,
-            STOP_LOSS_PCT,
+            stop_distance,
             MIN_TRADE_USDT,
             max_trade,
             fee_rate=FEE_RATE,
@@ -827,6 +874,7 @@ def trade():
             "stop_loss": stop_loss,
             "trail_price": price,
             "trade_id": trade_id,
+            "stop_distance": price - stop_loss if stop_loss is not None else stop_distance,
         }
 
         if not LIVE_MODE:
