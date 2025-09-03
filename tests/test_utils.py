@@ -420,6 +420,7 @@ def test_trade_skips_when_position_size_zero(tmp_path, monkeypatch, main_module)
         "calculate_position_size",
         lambda *a, **k: (0.0, None, "forced zero"),
     )
+    monkeypatch.setattr(main_module, "get_stop_distance", lambda s, p: 1.0)
     monkeypatch.setattr(main_module, "send", lambda msg: None)
 
     # history ensures strategy would buy if size were nonzero
@@ -482,6 +483,7 @@ def test_trade_handles_multiple_pairs(tmp_path, monkeypatch, main_module):
     monkeypatch.setattr(main_module, "get_price", lambda s: prices[s])
     monkeypatch.setattr(main_module, "get_news_headlines", lambda s: ["rally"])
     monkeypatch.setattr(main_module, "send", lambda msg: None)
+    monkeypatch.setattr(main_module, "get_stop_distance", lambda s, p: 1.0)
     monkeypatch.setattr(main_module, "calculate_position_size", lambda *a, **k: (0.001, None, None))
     monkeypatch.setattr(main_module.strategy, "should_buy", lambda s, price, h: True)
 
