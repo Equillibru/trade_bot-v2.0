@@ -81,9 +81,9 @@ def test_trade_buy_logic(tmp_path, monkeypatch, main_module, caplog):
                                                       "BNBUSDT", "AVAXUSDT", "XLMUSDT", "UNIUSDT", "CFXUSDT", "AAVEUSDT", "WIFUSDT",
                                                       "KERNELUSDT", "BCHUSDT", "ARBUSDT", "ENSUSDT", "DOTUSDT", "CKBUSDT", "LINKUSDT",
                                                       "TONUSDT", "NEARUSDT", "ETCUSDT", "CAKEUSDT", "SHIBUSDT", "OPUSDT"]))
-    main_module.TRADING_PAIRS = main_module.load_trading_pairs()
+    main_module.WATCHLIST = main_module.load_trading_pairs()
 
-    monkeypatch.setattr(main_module, "preload_history", lambda: None)
+    monkeypatch.setattr(main_module, "preload_history", lambda symbols=None: None)
   
     # Stub helpers
     monkeypatch.setattr(main_module, "get_price", lambda s: 10000.0)
@@ -145,9 +145,9 @@ def test_trade_with_no_headlines(tmp_path, monkeypatch, main_module):
                                                       "BNBUSDT", "AVAXUSDT", "XLMUSDT", "UNIUSDT", "CFXUSDT", "AAVEUSDT", "WIFUSDT",
                                                       "KERNELUSDT", "BCHUSDT", "ARBUSDT", "ENSUSDT", "DOTUSDT", "CKBUSDT", "LINKUSDT",
                                                       "TONUSDT", "NEARUSDT", "ETCUSDT", "CAKEUSDT", "SHIBUSDT", "OPUSDT"]))
-    main_module.TRADING_PAIRS = main_module.load_trading_pairs()
+    main_module.WATCHLIST = main_module.load_trading_pairs()
 
-    monkeypatch.setattr(main_module, "preload_history", lambda: None)
+    monkeypatch.setattr(main_module, "preload_history", lambda symbols=None: None)
 
     monkeypatch.setattr(main_module, "get_price", lambda s: 10000.0)
     monkeypatch.setattr(main_module, "get_news_headlines", lambda s: [])
@@ -203,8 +203,8 @@ def test_trade_with_neutral_headlines(tmp_path, monkeypatch, main_module):
                                                       "BNBUSDT", "AVAXUSDT", "XLMUSDT", "UNIUSDT", "CFXUSDT", "AAVEUSDT", "WIFUSDT",
                                                       "KERNELUSDT", "BCHUSDT", "ARBUSDT", "ENSUSDT", "DOTUSDT", "CKBUSDT", "LINKUSDT",
                                                       "TONUSDT", "NEARUSDT", "ETCUSDT", "CAKEUSDT", "SHIBUSDT", "OPUSDT"]))
-    main_module.TRADING_PAIRS = main_module.load_trading_pairs()
-    monkeypatch.setattr(main_module, "preload_history", lambda: None)
+    main_module.WATCHLIST = main_module.load_trading_pairs()
+    monkeypatch.setattr(main_module, "preload_history", lambda symbols=None: None)
 
     monkeypatch.setattr(main_module, "get_price", lambda s: 10000.0)
     monkeypatch.setattr(
@@ -332,8 +332,8 @@ def test_balance_persists_after_each_trade(tmp_path, monkeypatch, main_module):
                                                       "BNBUSDT", "AVAXUSDT", "XLMUSDT", "UNIUSDT", "CFXUSDT", "AAVEUSDT", "WIFUSDT",
                                                       "KERNELUSDT", "BCHUSDT", "ARBUSDT", "ENSUSDT", "DOTUSDT", "CKBUSDT", "LINKUSDT",
                                                       "TONUSDT", "NEARUSDT", "ETCUSDT", "CAKEUSDT", "SHIBUSDT", "OPUSDT"]))
-    main_module.TRADING_PAIRS = main_module.load_trading_pairs()
-    monkeypatch.setattr(main_module, "preload_history", lambda: None)
+    main_module.WATCHLIST = main_module.load_trading_pairs()
+    monkeypatch.setattr(main_module, "preload_history", lambda symbols=None: None)
 
     prices = [10000.0, 11000.0]
     monkeypatch.setattr(main_module, "get_price", lambda s: prices.pop(0))
@@ -410,8 +410,8 @@ def test_trade_skips_when_position_size_zero(tmp_path, monkeypatch, main_module)
                                                       "BNBUSDT", "AVAXUSDT", "XLMUSDT", "UNIUSDT", "CFXUSDT", "AAVEUSDT", "WIFUSDT",
                                                       "KERNELUSDT", "BCHUSDT", "ARBUSDT", "ENSUSDT", "DOTUSDT", "CKBUSDT", "LINKUSDT",
                                                       "TONUSDT", "NEARUSDT", "ETCUSDT", "CAKEUSDT", "SHIBUSDT", "OPUSDT"]))
-    main_module.TRADING_PAIRS = main_module.load_trading_pairs()
-    monkeypatch.setattr(main_module, "preload_history", lambda: None)
+    main_module.WATCHLIST = main_module.load_trading_pairs()
+    monkeypatch.setattr(main_module, "preload_history", lambda symbols=None: None)
 
     monkeypatch.setattr(main_module, "get_price", lambda s: 10000.0)
     monkeypatch.setattr(main_module, "get_news_headlines", lambda s: ["rally"])
@@ -474,8 +474,8 @@ def test_trade_handles_multiple_pairs(tmp_path, monkeypatch, main_module):
                                                       "KERNELUSDT", "BCHUSDT", "ARBUSDT", "ENSUSDT", "DOTUSDT", "CKBUSDT", "LINKUSDT",
                                                       "TONUSDT", "NEARUSDT", "ETCUSDT", "CAKEUSDT", "SHIBUSDT", "OPUSDT"])
     )
-    main_module.TRADING_PAIRS = main_module.load_trading_pairs()
-    monkeypatch.setattr(main_module, "preload_history", lambda: None)
+    main_module.WATCHLIST = main_module.load_trading_pairs()
+    monkeypatch.setattr(main_module, "preload_history", lambda symbols=None: None)
     monkeypatch.setattr(main_module, "MIN_TRADE_USDT", 0.5)
 
     prices = {"BTCUSDT": 10000.0, "ETHUSDT": 2000.0}
@@ -522,5 +522,5 @@ def test_trade_handles_multiple_pairs(tmp_path, monkeypatch, main_module):
     main_module.trade()
 
     positions = main_module.db.get_open_positions()
-    assert set(main_module.TRADING_PAIRS).issubset(positions.keys())
+    assert set(positions.keys()).issubset(main_module.WATCHLIST)
 
