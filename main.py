@@ -50,7 +50,7 @@ client = Client(BINANCE_KEY, BINANCE_SECRET)
 
 LIVE_MODE = False
 START_BALANCE = 100.32  # Example starting balance
-DAILY_MAX_INVEST = START_BALANCE * 0.20
+DAILY_MAX_INVEST = START_BALANCE * 0.25
 
 BALANCE_FILE = "balance.json"
 
@@ -58,8 +58,8 @@ BALANCE_FILE = "balance.json"
 SIM_USDT_BALANCE = START_BALANCE
 
 MIN_TRADE_USDT = 1.0
-MAX_TRADE_USDT = 10.0
-RISK_PER_TRADE = 0.01  # risk 1% of available balance per trade
+MAX_TRADE_USDT = 20.0
+RISK_PER_TRADE = 0.02  # risk 1% of available balance per trade
 STOP_LOSS_PCT = 0.02   # 2% stop loss below entry
 RISK_REWARD = 2.0
 FEE_RATE = 0.001
@@ -779,7 +779,7 @@ def trade():
 
         if actual_cost < MIN_TRADE_USDT:
             msg = reason or f"trade value ${actual_cost:.2f} below minimum"
-            print(f"❌ Skipped {symbol} — {msg}")
+            logger.info("❌ Skipped %s — %s", symbol, msg)
             continue
 
         
@@ -793,9 +793,8 @@ def trade():
         )
 
         if actual_cost > binance_usdt:
-            logger.warning(
-                "❌ Skipped %s — insufficient balance for $%.2f", symbol, actual_cost
-            )
+            msg = reason or f"insufficient balance for ${actual_cost:.2f}"
+            logger.warning("❌ Skipped %s — %s", symbol, msg)
             continue
 
         order_info = place_order(symbol, "buy", qty)
