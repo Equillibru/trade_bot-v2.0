@@ -51,7 +51,7 @@ def test_trailing_stop_updates(monkeypatch, tmp_path):
 
     main = importlib.import_module("main")
     monkeypatch.setattr(main, "load_json", lambda path, default: default)
-    monkeypatch.setattr(main, "preload_history", lambda: None)
+    monkeypatch.setattr(main, "preload_history", lambda symbols=None: None)
     monkeypatch.setattr(main, "get_usdt_balance", lambda: 1000.0)
     price_holder = {"price": 110.0}
     monkeypatch.setattr(main, "get_price", lambda symbol: price_holder["price"])
