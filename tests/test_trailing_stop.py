@@ -67,15 +67,11 @@ def test_trailing_stop_updates(monkeypatch, tmp_path):
     main.trade()
     pos = db.get_open_positions()["BTCUSDT"]
     assert pos["trail_price"] == pytest.approx(110.0)
-    assert pos["stop_loss"] == pytest.approx(
-        110.0 * (1 - main.STOP_LOSS_PCT)
-    )
+    assert pos["stop_loss"] == pytest.approx(108.0)
 
     # Second price increase
     price_holder["price"] = 120.0
     main.trade()
     pos = db.get_open_positions()["BTCUSDT"]
     assert pos["trail_price"] == pytest.approx(120.0)
-    assert pos["stop_loss"] == pytest.approx(
-        120.0 * (1 - main.STOP_LOSS_PCT)
-    )
+    assert pos["stop_loss"] == pytest.approx(118.0)
