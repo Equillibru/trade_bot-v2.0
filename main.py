@@ -382,20 +382,30 @@ def get_price(symbol):
 def fetch_historical_prices(symbol: str, limit: int) -> list[float]:
     """Fetch recent historical closing prices for ``symbol``.
 
-    Uses Binance 1-minute klines and returns the closing price from each
-    candle. The result contains up to ``limit`` prices, ordered oldest to
-    newest. Network errors are handled via ``call_with_retries``.
+    The Binance 1-minute klines endpoint is queried and the closing price from
+    each candle is stored in ``prices.db`` via :func:`save_price`. The returned
+    list contains up to ``limit`` prices ordered oldest to newest. Network
+    errors are handled via :func:`call_with_retries`.
     """
 
-    def _fetch() -> list[float]:
+    def _fetch() -> list[tuple[int, float]]:
         klines = client.get_klines(
             symbol=symbol,
             interval=Client.KLINE_INTERVAL_1MINUTE,
             limit=limit,
         )
-        return [float(k[4]) for k in klines]
+        return [(int(k[0]), float(k[4])) for k in klines]
 
-    return call_with_retries(_fetch, name=f"Binance klines {symbol}") or []
+    data = call_with_retries(_fetch, name=f"Binance klines {symbol}") or []
+    prices: list[float] = []
+    for ts_ms, price in data:
+        ts = datetime.datetime.fromtimestamp(ts_ms / 1000, tz=datetime.timezone.utc).strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
+        save_price(symbol, price, ts)
+        prices.append(price)
+    return prices
+    
 def place_order(symbol, side, qty):
     def _order():
         return client.create_order(
@@ -428,22 +438,35 @@ def get_news_headlines(symbol, limit=5):
     return [a["title"] for a in data.get("articles", []) if "title" in a]
 
 
-def save_price(symbol, price):
+def save_price(symbol, price, timestamp: str | None = None):
     """Persist price data with a timestamp into a SQLite database.
 
-    The database keeps only a rolling window of recent prices for each symbol
-    so that moving‑average calculations have sufficient history without the
-    table growing indefinitely.
+    Parameters
+    ----------
+    symbol : str
+        Trading pair symbol (e.g. ``BTCUSDT``).
+    price : float
+        Price to record.
+    timestamp : str | None, optional
+        ISO formatted timestamp for the price.  If ``None`` the current time is
+        used.  Allowing an explicit timestamp lets historical price fetches
+        backfill the database with accurate times.
+
+    The database keeps only a rolling window of recent prices for each symbol so
+    that moving‑average calculations have sufficient history without the table
+    growing indefinitely.
     """
+    
     try:
         conn = sqlite3.connect("prices.db")
         cur = conn.cursor()
         cur.execute(
             "CREATE TABLE IF NOT EXISTS prices (timestamp TEXT, symbol TEXT, price REAL)"
         )
-        timestamp = datetime.datetime.now(datetime.timezone.utc).strftime(
-            "%Y-%m-%d %H:%M:%S"
-        )
+        if timestamp is None:
+            timestamp = datetime.datetime.now(datetime.timezone.utc).strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
         cur.execute(
             "INSERT INTO prices (timestamp, symbol, price) VALUES (?, ?, ?)",
             (timestamp, symbol, price),
@@ -513,19 +536,32 @@ def preload_history(symbols=None):
     history_limit = max(
         getattr(strategy, "short_window", 0), getattr(strategy, "long_window", 0)
     )
+    long_window = getattr(strategy, "long_window", 0)
     for sym in symbols or WATCHLIST:
         prices = load_prices(sym, history_limit)
         if len(prices) < history_limit:
+            logger.info(
+                "Preloading %s history: have %d, need %d", sym, len(prices), history_limit
+            )
             fetched = fetch_historical_prices(sym, history_limit)
-            for p in fetched:
-                save_price(sym, p)
             prices = load_prices(sym, history_limit)
             
-        if prices:
-            if hasattr(strategy, "seed_history"):
-                strategy.seed_history(sym, prices)
-            else:
-                strategy.history[sym] = prices
+        if len(prices) < history_limit and fetched:
+                # Fallback in case ``fetch_historical_prices`` didn't persist
+                for p in fetched:
+                    save_price(sym, p)
+                prices = load_prices(sym, history_limit)
+
+        if len(prices) < long_window:
+            logger.warning(
+                "Insufficient history for %s: have %d, need %d", sym, len(prices), long_window
+            )
+            continue
+
+        if hasattr(strategy, "seed_history"):
+            strategy.seed_history(sym, prices)
+        else:
+            strategy.history[sym] = prices
             
 def update_balance(balance, positions, price_cache):
     """Recalculate total balance using live USDT value and persist it."""
@@ -593,7 +629,10 @@ def trade():
     for sym in positions.keys():
         if sym not in symbols:
             symbols.append(sym)
-    preload_history(symbols)
+    try:
+        preload_history(symbols)
+    except TypeError:
+        preload_history()
 
     for symbol in symbols:
         price = get_price(symbol)
@@ -800,7 +839,18 @@ def trade():
 def main():
     logger.info("🤖 Trading bot started.")
     send("🤖 Trading bot is live.")
-    sync_positions_with_exchange()
+    positions = sync_positions_with_exchange()
+
+    # Seed initial price history so strategies can act on the first cycle
+    preload_symbols = list(WATCHLIST)
+    for sym in positions.keys():
+        if sym not in preload_symbols:
+            preload_symbols.append(sym)
+    try:
+        preload_history(preload_symbols)
+    except TypeError:
+        preload_history()
+
     threading.Thread(target=poll_telegram_commands, daemon=True).start()
     while True:
         try:
