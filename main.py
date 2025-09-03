@@ -63,7 +63,7 @@ RISK_PER_TRADE = 0.02  # risk 1% of available balance per trade
 STOP_LOSS_PCT = 0.02   # 2% stop loss below entry
 RISK_REWARD = 2.0
 FEE_RATE = 0.001
-
+MAX_ORDERS_PER_CYCLE = 1
 
 # Default trading pairs used when no configuration is supplied
 DEFAULT_TRADING_PAIRS = [
@@ -634,7 +634,12 @@ def trade():
     except TypeError:
         preload_history()
 
+    orders_this_cycle = 0
+
     for symbol in symbols:
+        if orders_this_cycle >= MAX_ORDERS_PER_CYCLE and symbol not in positions:
+            continue
+
         price = get_price(symbol)
         if not price or price <= 0:
             logger.warning("⚠️ %s skipped — invalid price", symbol)
@@ -674,72 +679,85 @@ def trade():
                 pnl,
             )
 
+            
             if stop and price <= stop:
-                order_info = place_order(symbol, "sell", qty)
-                logger.info("   ↳ order: %s", order_info)
-                trade_id = pos.get("trade_id")
-                sell_value = current_value
-                db.update_trade_pnl(trade_id, profit, profit, pnl)
-                db.remove_position(symbol)
-                del positions[symbol]
+                if orders_this_cycle < MAX_ORDERS_PER_CYCLE:
+                    order_info = place_order(symbol, "sell", qty)
+                    logger.info("   ↳ order: %s", order_info)
+                    trade_id = pos.get("trade_id")
+                    sell_value = current_value
+                    db.update_trade_pnl(trade_id, profit, profit, pnl)
+                    db.remove_position(symbol)
+                    del positions[symbol]
 
                 if not LIVE_MODE:
-                    SIM_USDT_BALANCE += sell_value
-                    client.get_asset_balance = lambda asset: {"free": str(SIM_USDT_BALANCE)}
+                        SIM_USDT_BALANCE += sell_value
+                        client.get_asset_balance = lambda asset: {"free": str(SIM_USDT_BALANCE)}
 
                 total = update_balance(balance, positions, price_cache)
-                binance_usdt = balance["usdt"]
-                send(
-                    f"🛑 STOP {symbol} at ${price:.2f} — PnL: ${profit:.2f} USDT ({pnl:.2f}%) | Balance: ${binance_usdt:.2f} — {now}"
-                )
-                logger.info(
-                    "🛑 STOP %s at $%.2f | PnL: $%.2f USDT (%.2f%%)",
-                    symbol,
-                    price,
-                    profit,
-                    pnl,
-                )
-                logger.info(
-                    "   ↳ Balance now $%.2f USDT, Total $%.2f",
-                    binance_usdt,
-                    total,
-                )
-                break
+                    binance_usdt = balance["usdt"]
+                    send(
+                        f"🛑 STOP {symbol} at ${price:.2f} — PnL: ${profit:.2f} USDT ({pnl:.2f}%) | Balance: ${binance_usdt:.2f} — {now}"
+                    )
+                    logger.info(
+                        "🛑 STOP %s at $%.2f | PnL: $%.2f USDT (%.2f%%)",
+                        symbol,
+                        price,
+                        profit,
+                        pnl,
+                    )
+                    logger.info(
+                        "   ↳ Balance now $%.2f USDT, Total $%.2f",
+                        binance_usdt,
+                        total,
+                    )
+                    orders_this_cycle += 1
+                else:
+                    logger.info("🚫 Order limit reached, skipping stop-loss for %s", symbol)
+                continue
 
             if strategy.should_sell(symbol, pos, price, headlines):
-                order_info = place_order(symbol, "sell", qty)
-                logger.info("   ↳ order: %s", order_info)
-                trade_id = pos.get("trade_id")
-                sell_value = current_value
-                db.update_trade_pnl(trade_id, profit, profit, pnl)
-                db.remove_position(symbol)
-                del positions[symbol]
+                if orders_this_cycle < MAX_ORDERS_PER_CYCLE:
+                    order_info = place_order(symbol, "sell", qty)
+                    logger.info("   ↳ order: %s", order_info)
+                    trade_id = pos.get("trade_id")
+                    sell_value = current_value
+                    db.update_trade_pnl(trade_id, profit, profit, pnl)
+                    db.remove_position(symbol)
+                    del positions[symbol]
 
                 if not LIVE_MODE:
-                    SIM_USDT_BALANCE += sell_value
-                    client.get_asset_balance = lambda asset: {"free": str(SIM_USDT_BALANCE)}
-                    
-                
-                total = update_balance(balance, positions, price_cache)
-                binance_usdt = balance["usdt"]
-                send(
-                    f"✅ CLOSE {symbol} at ${price:.2f} — Profit: ${profit:.2f} USDT (+{pnl:.2f}%) | Balance: ${binance_usdt:.2f} — {now}"
-                )
-                logger.info(
-                    "✅ CLOSE %s at $%.2f | Profit: $%.2f USDT (+%.2f%%)",
-                    symbol,
-                    price,
-                    profit,
-                    pnl,
-                )
-                logger.info(
-                    "   ↳ Balance now $%.2f USDT, Total $%.2f",
-                    binance_usdt,
-                    total,
-                )
-            break
+                        SIM_USDT_BALANCE += sell_value
+                        client.get_asset_balance = lambda asset: {"free": str(SIM_USDT_BALANCE)}
+
+                    total = update_balance(balance, positions, price_cache)
+                    binance_usdt = balance["usdt"]
+                    send(
+                        f"✅ CLOSE {symbol} at ${price:.2f} — Profit: ${profit:.2f} USDT (+{pnl:.2f}%) | Balance: ${binance_usdt:.2f} — {now}"
+                    )
+                    logger.info(
+                        "✅ CLOSE %s at $%.2f | Profit: $%.2f USDT (+%.2f%%)",
+                        symbol,
+                        price,
+                        profit,
+                        pnl,
+                    )
+                    logger.info(
+                        "   ↳ Balance now $%.2f USDT, Total $%.2f",
+                        binance_usdt,
+                        total,
+                    )
+                    orders_this_cycle += 1
+                else:
+                    logger.info("🚫 Order limit reached, skipping close for %s", symbol)
+                continue
+
+            continue
 
         # For new positions, defer decision to strategy
+        if orders_this_cycle >= MAX_ORDERS_PER_CYCLE:
+            continue
+
         if not strategy.should_buy(symbol, price, headlines):
             continue
 
@@ -814,7 +832,7 @@ def trade():
         if not LIVE_MODE:
             SIM_USDT_BALANCE -= actual_cost
             client.get_asset_balance = lambda asset: {"free": str(SIM_USDT_BALANCE)}
-                    
+
         total = update_balance(balance, positions, price_cache)
         binance_usdt = balance["usdt"]
         send(
@@ -823,7 +841,8 @@ def trade():
         logger.info(
             "✅ BUY %s %s at $%.2f ($%.2f)", qty, symbol, price, actual_cost
         )
-        break
+        orders_this_cycle += 1
+        continue
 
     # Balance update
     total = update_balance(balance, positions, price_cache)
