@@ -13,10 +13,10 @@ def calculate_position_size(
     balance_usdt: float,
     price: float,
     risk_pct: float = 0.02,
-    stop_pct: float = 0.02,
+    stop_distance: float | None = None,
     min_trade: float = 1.0,
     max_trade: float = 20.0,
-    fee_rate : float = 0.0,
+    fee_rate: float = 0.0,
 ):
     """Compute position size and stop loss based on risk parameters.
 
@@ -25,7 +25,7 @@ def calculate_position_size(
     balance_usdt: available capital in USDT
     price:       current asset price
     risk_pct:    fraction of balance to risk on the trade (e.g. 0.01 for 1%)
-    stop_pct:    percentage distance from entry price to stop loss
+    stop_distance: absolute price distance between entry and stop
     min_trade:   minimum notional size of the trade
     max_trade:   maximum notional size of the trade
 
@@ -41,9 +41,9 @@ def calculate_position_size(
         logger.debug(msg)
         return 0.0, None, msg
 
-    if price <= 0 or stop_pct <= 0:
+    if price <= 0 or not stop_distance or stop_distance <= 0:
         msg = (
-            f"invalid inputs (balance={balance_usdt}, price={price}, stop_pct={stop_pct})"
+            f"invalid inputs (balance={balance_usdt}, price={price}, stop_distance={stop_distance})"
         )
         logger.debug(msg)
         return 0.0, None, None
@@ -56,8 +56,8 @@ def calculate_position_size(
         logger.debug(msg)
         return 0.0, None, msg
 
-    stop_loss = price * (1 - stop_pct)
-    per_unit_risk = (price - stop_loss) + (price + stop_loss) * fee_rate
+    stop_loss = price - stop_distance
+    per_unit_risk = stop_distance + (price + stop_loss) * fee_rate
     qty = risk_amount / per_unit_risk
     trade_value = qty * price
 
