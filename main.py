@@ -112,7 +112,8 @@ def load_trading_pairs() -> list[str]:
     return DEFAULT_TRADING_PAIRS.copy()
 
 
-TRADING_PAIRS = load_trading_pairs()
+# Static list of symbols to monitor for trading opportunities
+WATCHLIST = load_trading_pairs()
 
 bad_words = ["lawsuit", "ban", "hack", "crash", "regulation", "investigation"]
  # good_words = ["surge", "rally", "gain", "partnership", "bullish", "upgrade", "adoption"] - relaxing the news filter so trades proceed unless negative words are detected
@@ -498,19 +499,21 @@ def load_prices(symbol: str, limit: int):
             pass
 
 
-def preload_history():
-    """Ensure strategy history and local DB contain recent prices
-    For each configured trading pair, this loads the most recent prices from
-    ``prices.db``. If insufficient history is present it fetches historical
-    data from the exchange first, storing it in the database so subsequent
-    calls do not require another fetch.
-    """
+def preload_history(symbols=None):
+    """Ensure strategy history and local DB contain recent prices.
 
+    Parameters
+    ----------
+    symbols : iterable[str] | None
+        Specific symbols to preload.  If ``None`` the global ``WATCHLIST`` is
+        used.  Open positions may supply additional symbols so that sell logic
+        can run even if a pair is later removed from the watchlist.
+    """
 
     history_limit = max(
         getattr(strategy, "short_window", 0), getattr(strategy, "long_window", 0)
     )
-    for sym in TRADING_PAIRS:
+    for sym in symbols or WATCHLIST:
         prices = load_prices(sym, history_limit)
         if len(prices) < history_limit:
             fetched = fetch_historical_prices(sym, history_limit)
@@ -571,7 +574,7 @@ def sync_positions_with_exchange():
     return db_positions
 
 def trade():
-    global SIM_USDT_BALANCE, TRADING_PAIRS
+    global SIM_USDT_BALANCE
     positions = db.get_open_positions()
     balance = load_json(
         BALANCE_FILE,
@@ -586,9 +589,13 @@ def trade():
     logger.info("💵 Binance USDT balance: $%.2f", binance_usdt)
     
     price_cache = {}
-    preload_history()
-    
-    for symbol in TRADING_PAIRS:
+    symbols = list(WATCHLIST)
+    for sym in positions.keys():
+        if sym not in symbols:
+            symbols.append(sym)
+    preload_history(symbols)
+
+    for symbol in symbols:
         price = get_price(symbol)
         if not price or price <= 0:
             logger.warning("⚠️ %s skipped — invalid price", symbol)
@@ -779,8 +786,6 @@ def trade():
             "✅ BUY %s %s at $%.2f ($%.2f)", qty, symbol, price, actual_cost
         )
         break
-
-    TRADING_PAIRS = list(positions.keys())
 
     # Balance update
     total = update_balance(balance, positions, price_cache)
