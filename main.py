@@ -749,12 +749,14 @@ def trade():
                 stop = entry
                 pos["stop_loss"] = stop
                 updated = True
+                take_profit = entry + (trail - stop) * RISK_REWARD
+                pos["take_profit"] = take_profit
                 db.upsert_position(
                     symbol,
                     qty,
                     entry,
                     stop,
-                    pos.get("take_profit"),
+                    take_profit,
                     pos.get("trade_id"),
                     trail,
                     pos.get("stop_distance"),
@@ -769,12 +771,14 @@ def trade():
                 )
             elif updated:
                 pos["stop_loss"] = stop
+                take_profit = entry + (trail - stop) * RISK_REWARD
+                pos["take_profit"] = take_profit
                 db.upsert_position(
                     symbol,
                     qty,
                     entry,
                     stop,
-                    pos.get("take_profit"),
+                    take_profit,
                     pos.get("trade_id"),
                     trail,
                     pos.get("stop_distance"),
