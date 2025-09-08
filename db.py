@@ -41,6 +41,7 @@ def init_db():
                 stop_loss REAL,
                 take_profit REAL,
                 trail_price REAL,
+                stop_distance REAL,
                 opened_at TEXT,
                 trade_id INTEGER
             )
@@ -53,6 +54,8 @@ def init_db():
             cur.execute("ALTER TABLE positions ADD COLUMN trail_price REAL")
         if "take_profit" not in cols:
             cur.execute("ALTER TABLE positions ADD COLUMN take_profit REAL")
+        if "stop_distance" not in cols:
+            cur.execute("ALTER TABLE positions ADD COLUMN stop_distance REAL")
 
 
 def log_trade(symbol: str, side: str, qty: float, price: float) -> int:
@@ -106,15 +109,16 @@ def upsert_position(
     take_profit: Optional[float],
     trade_id: int,
     trail_price: float,
+    stop_distance: Optional[float],
 ) -> None:
     with get_conn() as conn:
         cur = conn.cursor()
         cur.execute(
             """
-            INSERT OR REPLACE INTO positions (symbol, qty, entry, stop_loss, take_profit, trail_price, opened_at, trade_id)
-            VALUES (?, ?, ?, ?, ?, ?, datetime('now'), ?)
+            INSERT OR REPLACE INTO positions (symbol, qty, entry, stop_loss, take_profit, trail_price, stop_distance, opened_at, trade_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), ?)
             """,
-            (symbol, qty, entry, stop_loss, take_profit, trail_price, trade_id),
+            (symbol, qty, entry, stop_loss, take_profit, trail_price, stop_distance, trade_id),
         )
 
 
@@ -128,7 +132,7 @@ def get_open_positions() -> Dict[str, Dict[str, Any]]:
     with get_conn() as conn:
         cur = conn.cursor()
         cur.execute(
-            "SELECT symbol, qty, entry, stop_loss, take_profit, trail_price, trade_id FROM positions"
+            "SELECT symbol, qty, entry, stop_loss, take_profit, trail_price, stop_distance, trade_id FROM positions"
         )
         rows = cur.fetchall()
     return {
@@ -138,7 +142,8 @@ def get_open_positions() -> Dict[str, Dict[str, Any]]:
             "stop_loss": row[3],
             "take_profit": row[4],
             "trail_price": row[5],
-            "trade_id": row[6],
+            "stop_distance": row[6],
+            "trade_id": row[7],
         }
         for row in rows
     }
