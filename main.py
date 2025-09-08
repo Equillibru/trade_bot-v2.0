@@ -274,7 +274,11 @@ def poll_telegram_commands():
                         send(f"⚠️ Insufficient balance for {symbol}")
                         continue
                     stop_distance = price - stop_loss if stop_loss is not None else stop_distance
-                    take_profit = price + stop_distance * RISK_REWARD
+                    take_profit = price + (
+                        stop_distance
+                        + price * FEE_RATE
+                        + (price + stop_distance) * FEE_RATE
+                    ) * RISK_REWARD
 
                     place_order(symbol, "buy", qty)
                     trade_id = db.log_trade(symbol, "BUY", qty, price)
@@ -833,6 +837,7 @@ def trade():
 
             take_profit = pos.get("take_profit")
             if take_profit and price >= take_profit:
+                # Take-profit target reached; fee-adjusted target ensures realized PnL is positive
                 order_info = place_order(symbol, "sell", qty)
                 logger.info("   ↳ order: %s", order_info)
                 trade_id = pos.get("trade_id")
@@ -966,7 +971,11 @@ def trade():
         logger.info("   ↳ order: %s", order_info)
 
         trade_id = db.log_trade(symbol, "BUY", qty, price)
-        take_profit = price + stop_distance * RISK_REWARD
+        take_profit = price + (
+            stop_distance
+            + price * FEE_RATE
+            + (price + stop_distance) * FEE_RATE
+        ) * RISK_REWARD
         db.upsert_position(
             symbol,
             qty,
