@@ -64,6 +64,24 @@ def test_load_and_save_json(tmp_path, main_module):
     main_module.save_json(path, new_data)
     assert main_module.load_json(path, {}) == new_data
 
+def test_load_json_malformed_rewrites(tmp_path, main_module):
+    path = tmp_path / "bad.json"
+    path.write_text("{not: valid json")
+    default = {"a": 1}
+    data = main_module.load_json(path, default)
+    assert data == default
+    with open(path) as f:
+        assert json.load(f) == default
+
+
+def test_load_json_other_errors_propagate(tmp_path, main_module, monkeypatch):
+    def boom(*args, **kwargs):
+        raise ValueError("boom")
+    monkeypatch.setattr("builtins.open", boom)
+    with pytest.raises(ValueError):
+        main_module.load_json(tmp_path / "x.json", {})
+
+
 
 def test_log_trade(main_module):
     trade_id = main_module.db.log_trade("BTCUSDT", "BUY", 1.0, 100)
