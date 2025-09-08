@@ -372,7 +372,7 @@ def load_json(path, default):
     try:
         with open(path) as f:
             return json.load(f)
-    except:
+    except: (FileNotFoundError, json.JSONDecodeError):
         with open(path, "w") as f:
             json.dump(default, f, indent=2)
         return default
