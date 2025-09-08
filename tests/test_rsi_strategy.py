@@ -47,5 +47,4 @@ def test_rsi_sell_on_profit_target_without_overbought():
 
     strat.should_sell(symbol, pos, 1.0, headlines)  # build history
     strat.should_sell(symbol, pos, 0.99, headlines)
-    target_price = 1 + profit_target_pct / 100
     assert strat.should_sell(symbol, pos, take_profit, headlines) is True
