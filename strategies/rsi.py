@@ -21,6 +21,7 @@ class RSIStrategy(Strategy):
         overbought: float = 70.0,
         bad_words: Sequence[str] | None = None,
         fee_rate: float = 0.0,
+        min_pnl_pct: float = 0.0,
     ) -> None:
         self.period = period
         self.oversold = oversold
@@ -28,6 +29,7 @@ class RSIStrategy(Strategy):
         self.history: Dict[str, List[float]] = {}
         self.bad_words = [w.lower() for w in (bad_words or [])]
         self.fee_rate = fee_rate
+        self.min_pnl_pct = min_pnl_pct
 
     # -- helpers -----------------------------------------------------------
     def _rsi(self, prices: List[float]) -> float | None:
@@ -79,4 +81,13 @@ class RSIStrategy(Strategy):
         rsi = self._rsi(prices)
         if rsi is None:
             return False
-        return rsi > self.overbought
+        if rsi > self.overbought:
+            entry = position.get("entry")
+            if entry is None:
+                return False
+            entry_cost = entry * (1 + self.fee_rate)
+            current_value = price * (1 - self.fee_rate)
+            profit = current_value - entry_cost
+            pnl_pct = (profit / entry_cost) * 100
+            return pnl_pct > self.min_pnl_pct
+        return False
