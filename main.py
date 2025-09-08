@@ -524,43 +524,37 @@ def save_price(symbol, price, timestamp: str | None = None):
     """
     
     try:
-        conn = sqlite3.connect("prices.db")
-        cur = conn.cursor()
-        cur.execute(
-            "CREATE TABLE IF NOT EXISTS prices (timestamp TEXT, symbol TEXT, price REAL)"
-        )
-        if timestamp is None:
-            timestamp = datetime.datetime.now(datetime.timezone.utc).strftime(
-                "%Y-%m-%d %H:%M:%S"
+        with sqlite3.connect("prices.db") as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "CREATE TABLE IF NOT EXISTS prices (timestamp TEXT, symbol TEXT, price REAL)"
             )
-        cur.execute(
-            "INSERT INTO prices (timestamp, symbol, price) VALUES (?, ?, ?)",
-            (timestamp, symbol, price),
-        )
-
+            if timestamp is None:
+                timestamp = datetime.datetime.now(datetime.timezone.utc).strftime(
+                    "%Y-%m-%d %H:%M:%S"
+                )
+            cur.execute(
+                "INSERT INTO prices (timestamp, symbol, price) VALUES (?, ?, ?)",
+                (timestamp, symbol, price),
+            )
         # keep a limited number of rows per symbol
-        max_window = getattr(strategy, "long_window", 0)
-        history_cap = max(max_window, getattr(strategy, "short_window", 0)) * 10 or 100
-        cur.execute(
-            """
-            DELETE FROM prices
-            WHERE symbol = ? AND rowid NOT IN (
-                SELECT rowid FROM prices
-                WHERE symbol = ?
-                ORDER BY timestamp DESC, rowid DESC
-                LIMIT ?
+            max_window = getattr(strategy, "long_window", 0)
+            history_cap = max(max_window, getattr(strategy, "short_window", 0)) * 10 or 100
+            cur.execute(
+                """
+                DELETE FROM prices
+                WHERE symbol = ? AND rowid NOT IN (
+                    SELECT rowid FROM prices
+                    WHERE symbol = ?
+                    ORDER BY timestamp DESC, rowid DESC
+                    LIMIT ?
+                )
+                """,
+                (symbol, symbol, history_cap),
             )
-            """,
-            (symbol, symbol, history_cap),
-        )
-        conn.commit()
-    except Exception as e:
-        logger.error("Price save error: %s", e)
-    finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
+            conn.commit()
+    except sqlite3.Error as exc:
+        logger.error("Price save error: %s", exc)
 
 def load_prices(symbol: str, limit: int):
     """Load the most recent ``limit`` prices for ``symbol`` from ``prices.db``."""
