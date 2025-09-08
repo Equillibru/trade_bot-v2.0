@@ -701,11 +701,43 @@ def trade():
             stop_distance = pos.get("stop_distance")
             if stop_distance is None:
                 stop_distance = get_stop_distance(symbol, price)
-                pos["stop_distance"] = stop_distance
+                pos["stop_distance"] = stop_distancec
+                
+            updated = False
             if price > trail:
                 trail = price
-                stop = trail - stop_distance
                 pos["trail_price"] = trail
+                stop = trail - stop_distance
+                updated = True
+            else:
+                stop = pos.get("stop_loss")
+
+            if (
+                stop is not None
+                and price - entry >= stop_distance
+                and stop < entry
+            ):
+                stop = entry
+                pos["stop_loss"] = stop
+                updated = True
+                db.upsert_position(
+                    symbol,
+                    qty,
+                    entry,
+                    stop,
+                    pos.get("take_profit"),
+                    pos.get("trade_id"),
+                    trail,
+                )
+                logger.info(
+                    "🔒 %s stop-loss moved to break-even ($%.2f)",
+                    symbol,
+                    entry,
+                )
+                send(
+                    f"🔒 {symbol} stop-loss moved to break-even at ${entry:.2f} — {now}"
+                )
+            elif updated:
                 pos["stop_loss"] = stop
                 db.upsert_position(
                     symbol,
@@ -716,8 +748,6 @@ def trade():
                     pos.get("trade_id"),
                     trail,
                 )
-            else:
-                stop = pos.get("stop_loss")
                 
             entry_cost = entry * qty * (1 + FEE_RATE)
             current_value = price * qty * (1 - FEE_RATE)
