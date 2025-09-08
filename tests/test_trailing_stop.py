@@ -53,7 +53,7 @@ def test_trailing_stop_updates(monkeypatch, tmp_path):
     monkeypatch.setattr(main, "load_json", lambda path, default: default)
     monkeypatch.setattr(main, "preload_history", lambda symbols=None: None)
     monkeypatch.setattr(main, "get_usdt_balance", lambda: 1000.0)
-    price_holder = {"price": 110.0}
+    price_holder = {"price": 102.0}
     monkeypatch.setattr(main, "get_price", lambda symbol: price_holder["price"])
     monkeypatch.setattr(main, "get_news_headlines", lambda symbol: [])
     monkeypatch.setattr(
@@ -66,12 +66,14 @@ def test_trailing_stop_updates(monkeypatch, tmp_path):
     # First price increase
     main.trade()
     pos = db.get_open_positions()["BTCUSDT"]
-    assert pos["trail_price"] == pytest.approx(110.0)
-    assert pos["stop_loss"] == pytest.approx(108.0)
+    assert pos["trail_price"] == pytest.approx(102.0)
+    assert pos["stop_loss"] == pytest.approx(100.0)
+    assert pos["take_profit"] == pytest.approx(104.0)
 
     # Second price increase
-    price_holder["price"] = 120.0
+    price_holder["price"] = 103.0
     main.trade()
     pos = db.get_open_positions()["BTCUSDT"]
-    assert pos["trail_price"] == pytest.approx(120.0)
-    assert pos["stop_loss"] == pytest.approx(118.0)
+    assert pos["trail_price"] == pytest.approx(103.0)
+    assert pos["stop_loss"] == pytest.approx(101.0)
+    assert pos["take_profit"] == pytest.approx(104.0)
