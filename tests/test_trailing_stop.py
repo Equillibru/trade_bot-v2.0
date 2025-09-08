@@ -27,7 +27,7 @@ def test_trailing_stop_updates(monkeypatch, tmp_path):
     db = importlib.import_module("db")
     db.init_db()
     trade_id = db.log_trade("BTCUSDT", "BUY", 1.0, 100.0)
-    db.upsert_position("BTCUSDT", 1.0, 100.0, 98.0, 150.0, trade_id, 100.0)
+    db.upsert_position("BTCUSDT", 1.0, 100.0, 98.0, 150.0, trade_id, 100.0, 2.0)
 
     import binance.client as bc
 
