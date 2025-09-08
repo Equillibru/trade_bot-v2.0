@@ -1,9 +1,6 @@
-import sys
-import sys
-import sys
-import sys
 
 from pathlib import Path
+import sys
 
 import pytest
 
@@ -33,16 +30,26 @@ def test_rsi_sell_signal_on_overbought():
     strat.should_sell(symbol, pos, 2.0, headlines)
     assert strat.should_sell(symbol, pos, 3.0, headlines) is True
 
+def test_rsi_sell_requires_positive_pnl():
+    strat = RSIStrategy(period=2, oversold=30, overbought=70, fee_rate=0.1)
+    symbol = "ADAUSDT"
+    headlines: list[str] = []
+    pos = {"entry": 1.0, "qty": 1.0}
+
+    strat.should_sell(symbol, pos, 1.0, headlines)  # build history
+    strat.should_sell(symbol, pos, 1.05, headlines)
+    assert strat.should_sell(symbol, pos, 1.10, headlines) is False
 
 def test_rsi_sell_on_profit_target_without_overbought():
     strat = RSIStrategy(
         period=2,
         oversold=30,
         overbought=70,
+        fee_rate=0.1, 
     )
     symbol = "XRPUSDT"
     headlines: list[str] = []
-    take_profit = 1.04
+    take_profit = 1.05
     pos = {"entry": 1.0, "qty": 1.0, "take_profit": take_profit}
 
     strat.should_sell(symbol, pos, 1.0, headlines)  # build history
