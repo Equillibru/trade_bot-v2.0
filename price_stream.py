@@ -1,9 +1,12 @@
 import os
 import threading
 import time
+import logging
 from typing import Dict, List, Optional
 
 from binance import ThreadedWebsocketManager
+
+logger = logging.getLogger(__name__)
 
 # Thread-safe cache for latest prices
 latest_prices: Dict[str, float] = {}
@@ -23,8 +26,8 @@ def _handle_ticker(msg: dict):
         price = float(msg.get("c"))
         with _prices_lock:
             latest_prices[symbol] = price
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.exception("ticker processing error: %s", exc)
 
 
 def _start_manager() -> None:
