@@ -122,16 +122,15 @@ bad_words = ["lawsuit", "ban", "hack", "crash", "regulation", "investigation"]
  # good_words = ["surge", "rally", "gain", "partnership", "bullish", "upgrade", "adoption"] - relaxing the news filter so trades proceed unless negative words are detected
 # Strategy selection via environment variable
 STRATEGY_NAME = os.getenv("STRATEGY_NAME", "ma").lower()
-PROFIT_TARGET_PCT = float(os.getenv("PROFIT_TARGET_PCT", "4.0"))
 
 def _init_strategy(name: str) -> Strategy:
     if name == "ma":
         return MovingAverageCrossStrategy(
-            bad_words=bad_words, profit_target_pct=PROFIT_TARGET_PCT
+            bad_words=bad_words
         )
     if name == "rsi":
         return RSIStrategy(
-            bad_words=bad_words, profit_target_pct=PROFIT_TARGET_PCT
+            bad_words=bad_words
         )
     raise ValueError(f"Unknown strategy '{name}'")
     
@@ -267,11 +266,12 @@ def poll_telegram_commands():
 
                     place_order(symbol, "buy", qty)
                     trade_id = db.log_trade(symbol, "BUY", qty, price)
-                    db.upsert_position(symbol, qty, price, None, trade_id, price)
+                    db.upsert_position(symbol, qty, price, None, None, trade_id, price)
                     positions[symbol] = {
                         "qty": qty,
                         "entry": price,
                         "stop_loss": None,
+                        "take_profit": None,
                         "trail_price": price,
                         "trade_id": trade_id,
                     }
@@ -637,6 +637,7 @@ def sync_positions_with_exchange():
                     exch_qty,
                     pos["entry"],
                     pos.get("stop_loss"),
+                    pos.get("take_profit"),
                     pos["trade_id"],
                     pos.get("trail_price", pos["entry"]),
                 )
@@ -707,7 +708,13 @@ def trade():
                 pos["trail_price"] = trail
                 pos["stop_loss"] = stop
                 db.upsert_position(
-                    symbol, qty, entry, stop, pos.get("trade_id"), trail
+                    symbol,
+                    qty,
+                    entry,
+                    stop,
+                    pos.get("take_profit"),
+                    pos.get("trade_id"),
+                    trail,
                 )
             else:
                 stop = pos.get("stop_loss")
@@ -760,6 +767,43 @@ def trade():
                     orders_this_cycle += 1
                 else:
                     logger.info("🚫 Order limit reached, skipping stop-loss for %s", symbol)
+                continue
+
+            take_profit = pos.get("take_profit")
+            if take_profit and price >= take_profit:
+                if orders_this_cycle < MAX_ORDERS_PER_CYCLE:
+                    order_info = place_order(symbol, "sell", qty)
+                    logger.info("   ↳ order: %s", order_info)
+                    trade_id = pos.get("trade_id")
+                    sell_value = current_value
+                    db.update_trade_pnl(trade_id, profit, profit, pnl)
+                    db.remove_position(symbol)
+                    del positions[symbol]
+
+                    if not LIVE_MODE:
+                        SIM_USDT_BALANCE += sell_value
+                        client.get_asset_balance = lambda asset: {"free": str(SIM_USDT_BALANCE)}
+
+                    total = update_balance(balance, positions, price_cache)
+                    binance_usdt = balance["usdt"]
+                    send(
+                        f"🎯 TARGET {symbol} at ${price:.2f} — Profit: ${profit:.2f} USDT (+{pnl:.2f}%) | Balance: ${binance_usdt:.2f} — {now}"
+                    )
+                    logger.info(
+                        "🎯 TARGET %s at $%.2f | Profit: $%.2f USDT (+%.2f%%)",
+                        symbol,
+                        price,
+                        profit,
+                        pnl,
+                    )
+                    logger.info(
+                        "   ↳ Balance now $%.2f USDT, Total $%.2f",
+                        binance_usdt,
+                        total,
+                    )
+                    orders_this_cycle += 1
+                else:
+                    logger.info("🚫 Order limit reached, skipping take-profit for %s", symbol)
                 continue
 
             if strategy.should_sell(symbol, pos, price, headlines):
@@ -866,12 +910,14 @@ def trade():
         logger.info("   ↳ order: %s", order_info)
 
         trade_id = db.log_trade(symbol, "BUY", qty, price)
-        db.upsert_position(symbol, qty, price, stop_loss, trade_id, price)
+        take_profit = price + stop_distance * RISK_REWARD
+        db.upsert_position(symbol, qty, price, stop_loss, take_profit, trade_id, price)
         positions[symbol] = {
             "type": "LONG",
             "qty": qty,
             "entry": price,
             "stop_loss": stop_loss,
+            "take_profit": take_profit,
             "trail_price": price,
             "trade_id": trade_id,
             "stop_distance": price - stop_loss if stop_loss is not None else stop_distance,
