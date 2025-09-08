@@ -232,18 +232,12 @@ def poll_telegram_commands():
 
                 text = (msg.get("text") or "").strip()
                 parts = text.split()
-                if len(parts) != 3:
+                if len(parts) < 2:
                     send_poll("Select action", ["BUY", "SELL"])
                     continue
 
-                cmd, symbol, qty_str = parts
-                cmd = cmd.upper()
-                symbol = symbol.upper()
-                try:
-                    qty = float(qty_str)
-                except ValueError:
-                    send("❓ Quantity must be numeric")
-                    continue
+                cmd = parts[0].upper()
+                symbol = parts[1].upper()
 
                 if cmd == "BUY":
                     price = get_price(symbol)
@@ -259,21 +253,50 @@ def poll_telegram_commands():
                     binance_usdt = get_usdt_balance()
                     if binance_usdt <= 0:
                         binance_usdt = balance.get("usdt", START_BALANCE)
+                    
+                    stop_distance = get_stop_distance(symbol, price)
+                    qty, stop_loss, reason = calculate_position_size(
+                        binance_usdt,
+                        price,
+                        RISK_PER_TRADE,
+                        stop_distance,
+                        MIN_TRADE_USDT,
+                        MAX_TRADE_USDT,
+                        fee_rate=FEE_RATE,
+                    )
+
+                    if qty <= 0:
+                        send(f"⚠️ Unable to size position for {symbol}: {reason}")
+                        continue
+
                     actual_cost = qty * price * (1 + FEE_RATE)
                     if actual_cost > binance_usdt:
                         send(f"⚠️ Insufficient balance for {symbol}")
                         continue
+                    stop_distance = price - stop_loss if stop_loss is not None else stop_distance
+                    take_profit = price + stop_distance * RISK_REWARD
 
                     place_order(symbol, "buy", qty)
                     trade_id = db.log_trade(symbol, "BUY", qty, price)
-                    db.upsert_position(symbol, qty, price, None, None, trade_id, price)
+                    db.upsert_position(
+                        symbol,
+                        qty,
+                        price,
+                        stop_loss,
+                        take_profit,
+                        trade_id,
+                        price,
+                        stop_distance,
+                    )
+                    
                     positions[symbol] = {
                         "qty": qty,
                         "entry": price,
-                        "stop_loss": None,
-                        "take_profit": None,
+                        "stop_loss": stop_loss,
+                        "take_profit": take_profit,
                         "trail_price": price,
                         "trade_id": trade_id,
+                        "stop_distance": stop_distance,
                     }
                     if not LIVE_MODE:
                         SIM_USDT_BALANCE -= actual_cost
@@ -286,6 +309,15 @@ def poll_telegram_commands():
                     )
 
                 elif cmd == "SELL":
+                    if len(parts) != 3:
+                        send("❓ SELL requires quantity")
+                        continue
+                    try:
+                        qty = float(parts[2])
+                    except ValueError:
+                        send("❓ Quantity must be numeric")
+                        continue
+
                     positions = db.get_open_positions()
                     if symbol not in positions:
                         send(f"⚠️ No open position for {symbol}")
@@ -307,7 +339,7 @@ def poll_telegram_commands():
                         BALANCE_FILE,
                         {"usdt": START_BALANCE, "total": START_BALANCE},
                     )
-                    
+
                     entry_cost = pos["entry"] * qty * (1 + FEE_RATE)
                     sell_value = qty * price * (1 - FEE_RATE)
                     profit = sell_value - entry_cost
@@ -640,21 +672,24 @@ def sync_positions_with_exchange():
                     pos.get("take_profit"),
                     pos["trade_id"],
                     pos.get("trail_price", pos["entry"]),
+                    pos.get("stop_distance"),
                 )
                 db_positions[symbol]["qty"] = exch_qty
     for p in db_positions.values():
-        stop = p.get("stop_loss")
-        trail = p.get("trail_price", p.get("entry"))
-        p["stop_distance"] = trail - stop if stop is not None else None
+        if p.get("stop_distance") is None:
+            stop = p.get("stop_loss")
+            trail = p.get("trail_price", p.get("entry"))
+            p["stop_distance"] = trail - stop if stop is not None else None
     return db_positions
 
 def trade():
     global SIM_USDT_BALANCE
     positions = db.get_open_positions()
     for p in positions.values():
-        stop = p.get("stop_loss")
-        trail = p.get("trail_price", p.get("entry"))
-        p["stop_distance"] = trail - stop if stop is not None else None
+        if p.get("stop_distance") is None:
+            stop = p.get("stop_loss")
+            trail = p.get("trail_price", p.get("entry"))
+            p["stop_distance"] = trail - stop if stop is not None else None
     balance = load_json(
         BALANCE_FILE,
         {"usdt": START_BALANCE, "total": START_BALANCE},
@@ -701,7 +736,7 @@ def trade():
             stop_distance = pos.get("stop_distance")
             if stop_distance is None:
                 stop_distance = get_stop_distance(symbol, price)
-                pos["stop_distance"] = stop_distancec
+                pos["stop_distance"] = stop_distance
                 
             updated = False
             if price > trail:
@@ -728,6 +763,7 @@ def trade():
                     pos.get("take_profit"),
                     pos.get("trade_id"),
                     trail,
+                    pos.get("stop_distance"),
                 )
                 logger.info(
                     "🔒 %s stop-loss moved to break-even ($%.2f)",
@@ -747,6 +783,7 @@ def trade():
                     pos.get("take_profit"),
                     pos.get("trade_id"),
                     trail,
+                    pos.get("stop_distance"),
                 )
                 
             entry_cost = entry * qty * (1 + FEE_RATE)
@@ -941,7 +978,16 @@ def trade():
 
         trade_id = db.log_trade(symbol, "BUY", qty, price)
         take_profit = price + stop_distance * RISK_REWARD
-        db.upsert_position(symbol, qty, price, stop_loss, take_profit, trade_id, price)
+        db.upsert_position(
+            symbol,
+            qty,
+            price,
+            stop_loss,
+            take_profit,
+            trade_id,
+            price,
+            stop_distance,
+        )
         positions[symbol] = {
             "type": "LONG",
             "qty": qty,
