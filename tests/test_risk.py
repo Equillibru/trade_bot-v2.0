@@ -12,17 +12,26 @@ FEE_RATE = 0.001
 
 
 def test_basic_position_size():
+    balance = 100.0
+    price = 50.0
+    stop_distance = 1.0
     qty, stop, msg = calculate_position_size(
-        100.0,
-        50.0,
+        balance,
+        price,
         risk_pct=0.01,
-        stop_distance=1.0,
+        stop_distance=stop_distance,
         min_trade=1.0,
         max_trade=100,
         fee_rate=FEE_RATE,
     )
-    assert qty == pytest.approx(0.909918)
-    assert stop == pytest.approx(49.0)
+
+    expected_stop = price - stop_distance
+    risk_amount = balance * 0.01
+    per_unit_risk = stop_distance + price * FEE_RATE + expected_stop * FEE_RATE
+    expected_qty = risk_amount / per_unit_risk
+
+    assert qty == pytest.approx(expected_qty)
+    assert stop == pytest.approx(expected_stop)
     assert msg is None
 
 
