@@ -57,7 +57,9 @@ def calculate_position_size(
         return 0.0, None, msg
 
     stop_loss = price - stop_distance
-    per_unit_risk = stop_distance + (price + stop_loss) * fee_rate
+    entry_fee = price * fee_rate
+    exit_fee = stop_loss * fee_rate
+    per_unit_risk = stop_distance + entry_fee + exit_fee
     qty = risk_amount / per_unit_risk
     trade_value = qty * price
 
