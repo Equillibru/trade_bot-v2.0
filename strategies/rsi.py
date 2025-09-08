@@ -72,7 +72,7 @@ class RSIStrategy(Strategy):
         prices = self.history.setdefault(symbol, [])
         prices.append(price)
 
-       take_profit = position.get("take_profit")
+        take_profit = position.get("take_profit")
         if take_profit and price >= take_profit:
             return True
 
