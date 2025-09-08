@@ -127,14 +127,16 @@ def remove_position(symbol: str) -> None:
 def get_open_positions() -> Dict[str, Dict[str, Any]]:
     with get_conn() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT symbol, qty, entry, stop_loss, trail_price, trade_id FROM positions")
+        cur.execute(
+            "SELECT symbol, qty, entry, stop_loss, take_profit, trail_price, trade_id FROM positions"
+        )
         rows = cur.fetchall()
     return {
         row[0]: {
             "qty": row[1],
             "entry": row[2],
             "stop_loss": row[3],
-           "take_profit": row[4],
+            "take_profit": row[4],
             "trail_price": row[5],
             "trade_id": row[6],
         }
