@@ -8,8 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 
-def test_trailing_stop_updates(monkeypatch, tmp_path):
-    # Required environment variables for importing main
+def _bootstrap_main(monkeypatch, tmp_path, initial_price):
     monkeypatch.setenv("TELEGRAM_TOKEN", "t")
     monkeypatch.setenv("TELEGRAM_CHAT_ID", "c")
     monkeypatch.setenv("BINANCE_API_KEY", "k")
@@ -19,16 +18,14 @@ def test_trailing_stop_updates(monkeypatch, tmp_path):
     db_file = tmp_path / "trades.db"
     monkeypatch.setenv("TRADE_DB_FILE", str(db_file))
 
-    # Ensure clean module imports
+   
     for mod in ["db", "main"]:
         if mod in sys.modules:
             del sys.modules[mod]
 
     db = importlib.import_module("db")
     db.init_db()
-    trade_id = db.log_trade("BTCUSDT", "BUY", 1.0, 100.0)
-    db.upsert_position("BTCUSDT", 1.0, 100.0, 98.0, 150.0, trade_id, 100.0, 2.0)
-
+    
     import binance.client as bc
 
     class DummyClient:
@@ -53,7 +50,7 @@ def test_trailing_stop_updates(monkeypatch, tmp_path):
     monkeypatch.setattr(main, "load_json", lambda path, default: default)
     monkeypatch.setattr(main, "preload_history", lambda symbols=None: None)
     monkeypatch.setattr(main, "get_usdt_balance", lambda: 1000.0)
-    price_holder = {"price": 102.0}
+    price_holder = {"price": initial_price}
     monkeypatch.setattr(main, "get_price", lambda symbol: price_holder["price"])
     monkeypatch.setattr(main, "get_news_headlines", lambda symbol: [])
     monkeypatch.setattr(
@@ -63,17 +60,38 @@ def test_trailing_stop_updates(monkeypatch, tmp_path):
     monkeypatch.setattr(main.strategy, "should_sell", lambda s, p, price, h: False)
     monkeypatch.setattr(main.strategy, "should_buy", lambda s, price, h: False)
 
-    # First price increase
+    return main, db, price_holder
+
+
+def test_trailing_stop_updates(monkeypatch, tmp_path):
+    main, db, price_holder = _bootstrap_main(monkeypatch, tmp_path, 102.0)
+    trade_id = db.log_trade("BTCUSDT", "BUY", 1.0, 100.0)
+    db.upsert_position("BTCUSDT", 1.0, 100.0, 98.0, 150.0, trade_id, 100.0, 2.0)
+
     main.trade()
     pos = db.get_open_positions()["BTCUSDT"]
     assert pos["trail_price"] == pytest.approx(102.0)
     assert pos["stop_loss"] == pytest.approx(100.0)
     assert pos["take_profit"] == pytest.approx(104.0)
 
-    # Second price increase
+    
     price_holder["price"] = 103.0
     main.trade()
     pos = db.get_open_positions()["BTCUSDT"]
     assert pos["trail_price"] == pytest.approx(103.0)
     assert pos["stop_loss"] == pytest.approx(101.0)
     assert pos["take_profit"] == pytest.approx(104.0)
+
+
+def test_take_profit_positive_after_fees(monkeypatch, tmp_path):
+    main, db, price_holder = _bootstrap_main(monkeypatch, tmp_path, 100.05)
+    trade_id = db.log_trade("BTCUSDT", "BUY", 1.0, 100.0)
+    db.upsert_position("BTCUSDT", 1.0, 100.0, 99.5, 120.0, trade_id, 100.0, 0.05)
+
+    main.trade()
+    pos = db.get_open_positions()["BTCUSDT"]
+    entry = pos["entry"]
+    take_profit = pos["take_profit"]
+    net_profit = take_profit * (1 - main.FEE_RATE) - entry * (1 + main.FEE_RATE)
+
+    assert net_profit > 0
