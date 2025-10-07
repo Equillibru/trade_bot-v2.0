@@ -64,6 +64,41 @@ RISK_REWARD = 2.0
 FEE_RATE = 0.001
 MAX_ORDERS_PER_CYCLE = 1
 
+def calculate_fee_adjusted_take_profit(
+    entry: float,
+    stop: float | None,
+    trail: float | None,
+    fee_rate: float,
+    risk_reward: float,
+) -> float:
+    """Return a take-profit price that stays profitable after fees.
+
+    The helper keeps the original risk-reward target anchored at the entry
+    price, but adjusts it whenever the exchange fees would otherwise erase the
+    profit.  The new stop price is used to measure the actual downside if the
+    stop were triggered after fees, ensuring the adjusted target still respects
+    the configured risk-reward multiple while guaranteeing a positive net PnL
+    when hit.
+    """
+
+    if stop is None:
+        stop = entry
+    if trail is None:
+        trail = stop
+
+    entry_cost = entry * (1 + fee_rate)
+    stop_value = stop * (1 - fee_rate)
+    risk_after_fees = max(entry_cost - stop_value, 0.0)
+
+    base_target = entry + max(trail - stop, 0.0) * risk_reward
+    net_profit = base_target * (1 - fee_rate) - entry_cost
+
+    if net_profit <= 0:
+        min_profit = max(risk_after_fees * risk_reward, entry * fee_rate)
+        base_target = (entry_cost + min_profit) / (1 - fee_rate)
+
+    return base_target
+
 # Volatility-based stop configuration
 STOP_ATR_PERIOD = int(os.getenv("STOP_ATR_PERIOD", "14"))
 STOP_ATR_MULT = float(os.getenv("STOP_ATR_MULT", "2.0"))
@@ -753,7 +788,9 @@ def trade():
                 stop = entry
                 pos["stop_loss"] = stop
                 updated = True
-                take_profit = entry + (trail - stop) * RISK_REWARD
+                take_profit = calculate_fee_adjusted_take_profit(
+                    entry, stop, trail, FEE_RATE, RISK_REWARD
+                )
                 pos["take_profit"] = take_profit
                 db.upsert_position(
                     symbol,
@@ -775,7 +812,9 @@ def trade():
                 )
             elif updated:
                 pos["stop_loss"] = stop
-                take_profit = entry + (trail - stop) * RISK_REWARD
+                take_profit = calculate_fee_adjusted_take_profit(
+                    entry, stop, trail, FEE_RATE, RISK_REWARD
+                )
                 pos["take_profit"] = take_profit
                 db.upsert_position(
                     symbol,
