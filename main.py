@@ -62,6 +62,7 @@ MAX_TRADE_USDT = 20.0
 RISK_PER_TRADE = 0.02  # risk 1% of available balance per trade
 RISK_REWARD = 2.0
 FEE_RATE = 0.001
+MIN_EXIT_PNL_PCT =1.0
 MAX_ORDERS_PER_CYCLE = 1
 
 def calculate_fee_adjusted_take_profit(
@@ -70,15 +71,16 @@ def calculate_fee_adjusted_take_profit(
     trail: float | None,
     fee_rate: float,
     risk_reward: float,
+    min_exit_pnl_pct: float,
 ) -> float:
     """Return a take-profit price that stays profitable after fees.
 
     The helper keeps the original risk-reward target anchored at the entry
     price, but adjusts it whenever the exchange fees would otherwise erase the
-    profit.  The new stop price is used to measure the actual downside if the
+    profit. The new stop price is used to measure the actual downside if the
     stop were triggered after fees, ensuring the adjusted target still respects
-    the configured risk-reward multiple while guaranteeing a positive net PnL
-    when hit.
+    the configured risk-reward multiple while guaranteeing that the realized
+    profit clears the configured ``min_exit_pnl_pct`` threshold on execution.
     """
 
     if stop is None:
@@ -89,13 +91,17 @@ def calculate_fee_adjusted_take_profit(
     entry_cost = entry * (1 + fee_rate)
     stop_value = stop * (1 - fee_rate)
     risk_after_fees = max(entry_cost - stop_value, 0.0)
+    risk_distance =max(trail - stop, 0.0)
 
-    base_target = entry + max(trail - stop, 0.0) * risk_reward
+    base_target = entry + risk_distance * risk_reward
+    required_profit = max(
+        risk_after_fees * risk_reward,
+        entry * (min_exit_pnl_pct / 100.0),
+    )
+
     net_profit = base_target * (1 - fee_rate) - entry_cost
-
-    if net_profit <= 0:
-        min_profit = max(risk_after_fees * risk_reward, entry * fee_rate)
-        base_target = (entry_cost + min_profit) / (1 - fee_rate)
+    if net_profit < required_profit:
+        base_target = (entry_cost + required_profit) / (1 - fee_rate)
 
     return base_target
 
@@ -163,13 +169,13 @@ def _init_strategy(name: str) -> Strategy:
         return MovingAverageCrossStrategy(
             bad_words=bad_words,
             fee_rate=FEE_RATE,
-            min_pnl_pct=1.0,
+            min_pnl_pct=MIN_EXIT_PNL_PCT,
         )
     if name == "rsi":
         return RSIStrategy(
             bad_words=bad_words,
             fee_rate=FEE_RATE,
-            min_pnl_pct=1.0,
+            min_pnl_pct=MIN_EXIT_PNL_PCT,
         )
     raise ValueError(f"Unknown strategy '{name}'")
     
@@ -793,7 +799,12 @@ def trade():
                 pos["stop_loss"] = stop
                 updated = True
                 take_profit = calculate_fee_adjusted_take_profit(
-                    entry, stop, trail, FEE_RATE, RISK_REWARD
+                    entry,
+                    stop,
+                    trail,
+                    FEE_RATE,
+                    RISK_REWARD,
+                    MIN_EXIT_PNL_PCT,
                 )
                 pos["take_profit"] = take_profit
                 db.upsert_position(
@@ -817,7 +828,12 @@ def trade():
             elif updated:
                 pos["stop_loss"] = stop
                 take_profit = calculate_fee_adjusted_take_profit(
-                    entry, stop, trail, FEE_RATE, RISK_REWARD
+                    entry,
+                    stop,
+                    trail,
+                    FEE_RATE,
+                    RISK_REWARD,
+                    MIN_EXIT_PNL_PCT,
                 )
                 pos["take_profit"] = take_profit
                 db.upsert_position(
@@ -1014,11 +1030,14 @@ def trade():
         logger.info("   ↳ order: %s", order_info)
 
         trade_id = db.log_trade(symbol, "BUY", qty, price)
-        take_profit = price + (
-            stop_distance
-            + price * FEE_RATE
-            + (price + stop_distance) * FEE_RATE
-        ) * RISK_REWARD
+        take_profit = calculate_fee_adjusted_take_profit(
+            price,
+            stop_loss,
+            price,
+            FEE_RATE,
+            RISK_REWARD,
+            MIN_EXIT_PNL_PCT,
+        )
         db.upsert_position(
             symbol,
             qty,
