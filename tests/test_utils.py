@@ -285,7 +285,15 @@ def test_balance_total_updates(tmp_path, monkeypatch, main_module):
     monkeypatch.setattr(main_module, "preload_history", lambda: None)
 
     prices = [10000.0, 11000.0]
-    monkeypatch.setattr(main_module, "get_price", lambda s: prices.pop(0))
+
+    def price_feed():
+        for value in prices:
+            yield value
+        while True:
+            yield prices[-1]
+
+    price_iter = price_feed()
+    monkeypatch.setattr(main_module, "get_price", lambda s: next(price_iter))
     monkeypatch.setattr(main_module, "get_news_headlines", lambda s: ["rally"])
     monkeypatch.setattr(main_module, "send", lambda msg: None)
     monkeypatch.setattr(main_module, "get_usdt_balance", lambda: main_module.SIM_USDT_BALANCE)
@@ -294,7 +302,9 @@ def test_balance_total_updates(tmp_path, monkeypatch, main_module):
         "get_asset_balance",
         lambda asset: {"free": str(main_module.START_BALANCE)},
     )
-    monkeypatch.setattr(main_module.strategy, "should_buy", lambda s, price, h: True)
+    monkeypatch.setattr(
+        main_module.strategy, "should_buy", lambda s, price, h: s == "BTCUSDT"
+    )
     monkeypatch.setattr(main_module.strategy, "should_sell", lambda s, pos, price, h: True)
 
     # seed history to allow first trade to execute
@@ -354,7 +364,15 @@ def test_balance_persists_after_each_trade(tmp_path, monkeypatch, main_module):
     monkeypatch.setattr(main_module, "preload_history", lambda symbols=None: None)
 
     prices = [10000.0, 11000.0]
-    monkeypatch.setattr(main_module, "get_price", lambda s: prices.pop(0))
+
+    def price_feed():
+        for value in prices:
+            yield value
+        while True:
+            yield prices[-1]
+
+    price_iter = price_feed()
+    monkeypatch.setattr(main_module, "get_price", lambda s: next(price_iter))
     monkeypatch.setattr(main_module, "get_news_headlines", lambda s: ["rally"])
     monkeypatch.setattr(main_module, "send", lambda msg: None)
     
@@ -364,7 +382,9 @@ def test_balance_persists_after_each_trade(tmp_path, monkeypatch, main_module):
         "get_asset_balance",
         lambda asset: {"free": str(main_module.START_BALANCE)},
     )
-    monkeypatch.setattr(main_module.strategy, "should_buy", lambda s, price, h: True)
+    monkeypatch.setattr(
+        main_module.strategy, "should_buy", lambda s, price, h: s == "BTCUSDT"
+    )
     monkeypatch.setattr(main_module.strategy, "should_sell", lambda s, pos, price, h: True)
 
     # provide history for moving averages
