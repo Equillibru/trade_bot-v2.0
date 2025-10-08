@@ -9,6 +9,30 @@ import pytest
 # --- Fixtures ---------------------------------------------------------------
 
 @pytest.fixture
+def price_stub_factory():
+    """Return a helper that produces stateful price stubs per symbol."""
+
+    def factory(sequences: dict[str, list[float]], default: float = 10000.0):
+        progress = {symbol: 0 for symbol in sequences}
+        last_seen: dict[str, float] = {}
+
+        def get_price(symbol: str) -> float:
+            if symbol in sequences:
+                seq = sequences[symbol]
+                idx = progress[symbol]
+                if idx < len(seq):
+                    value = seq[idx]
+                    progress[symbol] = idx + 1
+                    last_seen[symbol] = value
+                    return value
+                return last_seen[symbol]
+            return default
+
+        return get_price
+
+    return factory
+
+@pytest.fixture
 def main_module(monkeypatch, tmp_path):
     """Import the main module with external dependencies mocked."""
     # Stub requests
@@ -271,7 +295,7 @@ def test_trade_with_neutral_headlines(tmp_path, monkeypatch, main_module):
     assert "BTCUSDT" in positions
 
 
-def test_balance_total_updates(tmp_path, monkeypatch, main_module):
+def test_balance_total_updates(tmp_path, monkeypatch, main_module, price_stub_factory):
     
     bal = tmp_path / "balance.json"
     
@@ -284,26 +308,31 @@ def test_balance_total_updates(tmp_path, monkeypatch, main_module):
     main_module.TRADING_PAIRS = main_module.load_trading_pairs()
     monkeypatch.setattr(main_module, "preload_history", lambda: None)
 
-    prices = [10000.0, 11000.0]
-
-    def price_feed():
-        for value in prices:
-            yield value
-        while True:
-            yield prices[-1]
-
-    price_iter = price_feed()
-    monkeypatch.setattr(main_module, "get_price", lambda s: next(price_iter))
+    price_sequences = {
+        "BTCUSDT": [10000.0, 11000.0],
+        "ETHUSDT": [2000.0, 2200.0],
+    }
+    price_stub = price_stub_factory(price_sequences, default=1500.0)
+    monkeypatch.setattr(main_module, "get_price", price_stub)
     monkeypatch.setattr(main_module, "get_news_headlines", lambda s: ["rally"])
     monkeypatch.setattr(main_module, "send", lambda msg: None)
+    main_module.SIM_USDT_BALANCE = main_module.START_BALANCE
     monkeypatch.setattr(main_module, "get_usdt_balance", lambda: main_module.SIM_USDT_BALANCE)
     monkeypatch.setattr(
         main_module.client,
         "get_asset_balance",
-        lambda asset: {"free": str(main_module.START_BALANCE)},
+        lambda asset: {"free": str(main_module.SIM_USDT_BALANCE)},
     )
+    buy_queue = deque(["BTCUSDT", "ETHUSDT"])
+
+    def queued_should_buy(symbol, price, headlines):
+        if buy_queue and symbol == buy_queue[0]:
+            buy_queue.popleft()
+            return True
+        return False
+
     monkeypatch.setattr(
-        main_module.strategy, "should_buy", lambda s, price, h: s == "BTCUSDT"
+        main_module.strategy, "should_buy", queued_should_buy
     )
     monkeypatch.setattr(main_module.strategy, "should_sell", lambda s, pos, price, h: True)
 
@@ -341,8 +370,9 @@ def test_balance_total_updates(tmp_path, monkeypatch, main_module):
     main_module.strategy.history["SHIBUSDT"] = [9996, 9997, 9998, 9999]
     main_module.strategy.history["OPUSDT"] = [9996, 9997, 9998, 9999]
     
-    main_module.trade()  # open
-    main_module.trade()  # close with profit
+    main_module.trade()  # open BTC
+    main_module.trade()  # close BTC, open ETH
+    main_module.trade()  # close ETH
 
     balance = main_module.load_json(bal, {})
     assert balance["usdt"] > main_module.START_BALANCE
@@ -350,7 +380,9 @@ def test_balance_total_updates(tmp_path, monkeypatch, main_module):
     assert main_module.db.get_open_positions() == {}
 
 
-def test_balance_persists_after_each_trade(tmp_path, monkeypatch, main_module):
+def test_balance_persists_after_each_trade(
+    tmp_path, monkeypatch, main_module, price_stub_factory
+):
     
     bal = tmp_path / "balance.json"
     
@@ -363,27 +395,33 @@ def test_balance_persists_after_each_trade(tmp_path, monkeypatch, main_module):
     main_module.WATCHLIST = main_module.load_trading_pairs()
     monkeypatch.setattr(main_module, "preload_history", lambda symbols=None: None)
 
-    prices = [10000.0, 11000.0]
-
-    def price_feed():
-        for value in prices:
-            yield value
-        while True:
-            yield prices[-1]
-
-    price_iter = price_feed()
-    monkeypatch.setattr(main_module, "get_price", lambda s: next(price_iter))
+    price_sequences = {
+        "BTCUSDT": [10000.0, 11000.0],
+        "ETHUSDT": [2000.0, 2200.0],
+    }
+    price_stub = price_stub_factory(price_sequences, default=1500.0)
+    monkeypatch.setattr(main_module, "get_price", price_stub)
     monkeypatch.setattr(main_module, "get_news_headlines", lambda s: ["rally"])
     monkeypatch.setattr(main_module, "send", lambda msg: None)
-    
 
+    
     monkeypatch.setattr(
         main_module.client,
         "get_asset_balance",
-        lambda asset: {"free": str(main_module.START_BALANCE)},
+        lambda asset: {"free": str(main_module.SIM_USDT_BALANCE)},
     )
+    main_module.SIM_USDT_BALANCE = main_module.START_BALANCE
+    monkeypatch.setattr(main_module, "get_usdt_balance", lambda: main_module.SIM_USDT_BALANCE)
+    buy_queue = deque(["BTCUSDT", "ETHUSDT"])
+
+    def queued_should_buy(symbol, price, headlines):
+        if buy_queue and symbol == buy_queue[0]:
+            buy_queue.popleft()
+            return True
+        return False
+
     monkeypatch.setattr(
-        main_module.strategy, "should_buy", lambda s, price, h: s == "BTCUSDT"
+        main_module.strategy, "should_buy", queued_should_buy
     )
     monkeypatch.setattr(main_module.strategy, "should_sell", lambda s, pos, price, h: True)
 
@@ -421,15 +459,25 @@ def test_balance_persists_after_each_trade(tmp_path, monkeypatch, main_module):
     main_module.strategy.history["SHIBUSDT"] = [9996, 9997, 9998, 9999]
     main_module.strategy.history["OPUSDT"] = [9996, 9997, 9998, 9999]
     
-    main_module.trade()  # buy
+    main_module.trade()  # buy BTC
     first_bal = main_module.load_json(bal, {})
+    positions_after_first = main_module.db.get_open_positions()
+    assert "BTCUSDT" in positions_after_first
     assert first_bal["usdt"] < main_module.START_BALANCE
     assert first_bal["total"] == pytest.approx(main_module.START_BALANCE, rel=1e-3)
 
-    main_module.trade()  # sell
+    main_module.trade()  # sell BTC, buy ETH
     second_bal = main_module.load_json(bal, {})
-    assert second_bal["usdt"] > first_bal["usdt"]
-    assert second_bal["total"] == pytest.approx(second_bal["usdt"])  # no open positions
+    positions_after_second = main_module.db.get_open_positions()
+    assert "BTCUSDT" not in positions_after_second
+    assert "ETHUSDT" in positions_after_second
+    assert second_bal["usdt"] != first_bal["usdt"]
+    assert second_bal["total"] > main_module.START_BALANCE
+
+    main_module.trade()  # sell ETH
+    final_bal = main_module.load_json(bal, {})
+    assert final_bal["usdt"] > main_module.START_BALANCE
+    assert final_bal["total"] == pytest.approx(final_bal["usdt"])
     assert main_module.db.get_open_positions() == {}
 
 def test_get_usdt_balance(monkeypatch, main_module):
