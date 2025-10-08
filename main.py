@@ -161,11 +161,15 @@ STRATEGY_NAME = os.getenv("STRATEGY_NAME", "ma").lower()
 def _init_strategy(name: str) -> Strategy:
     if name == "ma":
         return MovingAverageCrossStrategy(
-            bad_words=bad_words
+            bad_words=bad_words,
+            fee_rate=FEE_RATE,
+            min_pnl_pct=1.0,
         )
     if name == "rsi":
         return RSIStrategy(
-            bad_words=bad_words
+            bad_words=bad_words,
+            fee_rate=FEE_RATE,
+            min_pnl_pct=1.0,
         )
     raise ValueError(f"Unknown strategy '{name}'")
     
