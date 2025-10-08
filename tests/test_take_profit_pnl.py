@@ -8,8 +8,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 
-def test_take_profit_realized_pnl_positive(monkeypatch, tmp_path):
-    """Ensure realized PnL is positive when take-profit triggers."""
+def test_take_profit_realized_pnl_meets_minimum(monkeypatch, tmp_path):
+    """Ensure realized PnL meets the 1% minimum when take-profit triggers."""
     # Required environment variables for importing main
     monkeypatch.setenv("TELEGRAM_TOKEN", "t")
     monkeypatch.setenv("TELEGRAM_CHAT_ID", "c")
@@ -80,3 +80,4 @@ def test_take_profit_realized_pnl_positive(monkeypatch, tmp_path):
 
     trade = db.get_trade_history("BTCUSDT")[0]
     assert trade["profit"] > 0
+    assert trade["pnl_pct"] + 1e-6 >= main.MIN_EXIT_PNL_PCT
