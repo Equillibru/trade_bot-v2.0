@@ -755,10 +755,13 @@ def trade():
     except TypeError:
         preload_history()
 
-    orders_this_cycle = 0
+    buy_orders_this_cycle = 0
 
     for symbol in symbols:
-        if orders_this_cycle >= MAX_ORDERS_PER_CYCLE and symbol not in positions:
+        if (
+            buy_orders_this_cycle >= MAX_ORDERS_PER_CYCLE
+            and symbol not in positions
+        ):
             continue
 
         price = get_price(symbol)
@@ -891,7 +894,6 @@ def trade():
                     binance_usdt,
                     total,
                 )
-                orders_this_cycle += 1
                 continue
 
             take_profit = pos.get("take_profit")
@@ -926,7 +928,6 @@ def trade():
                     binance_usdt,
                     total,
                 )
-                orders_this_cycle += 1
                 continue
 
             if strategy.should_sell(symbol, pos, price, headlines):
@@ -959,13 +960,13 @@ def trade():
                     binance_usdt,
                     total,
                 )
-                orders_this_cycle += 1
+
                 continue
 
             continue
 
         # For new positions, defer decision to strategy
-        if orders_this_cycle >= MAX_ORDERS_PER_CYCLE:
+        if buy_orders_this_cycle >= MAX_ORDERS_PER_CYCLE:
             continue
 
         if not strategy.should_buy(symbol, price, headlines):
@@ -1071,7 +1072,7 @@ def trade():
         logger.info(
             "✅ BUY %s %s at $%.2f ($%.2f)", qty, symbol, price, actual_cost
         )
-        orders_this_cycle += 1
+        buy_orders_this_cycle += 1
         continue
 
     # Balance update
