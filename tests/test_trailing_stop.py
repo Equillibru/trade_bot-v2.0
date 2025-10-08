@@ -8,13 +8,15 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 
-def _bootstrap_main(monkeypatch, tmp_path, initial_price):
+def _bootstrap_main(monkeypatch, tmp_path, initial_prices, trading_pairs=None):
     monkeypatch.setenv("TELEGRAM_TOKEN", "t")
     monkeypatch.setenv("TELEGRAM_CHAT_ID", "c")
     monkeypatch.setenv("BINANCE_API_KEY", "k")
     monkeypatch.setenv("BINANCE_SECRET_KEY", "s")
     monkeypatch.setenv("NEWSAPI_KEY", "n")
-    monkeypatch.setenv("TRADING_PAIRS", '["BTCUSDT"]')
+    if trading_pairs is None:
+        trading_pairs = ["BTCUSDT"]
+    monkeypatch.setenv("TRADING_PAIRS", json.dumps(trading_pairs))
     db_file = tmp_path / "trades.db"
     monkeypatch.setenv("TRADE_DB_FILE", str(db_file))
 
@@ -50,8 +52,19 @@ def _bootstrap_main(monkeypatch, tmp_path, initial_price):
     monkeypatch.setattr(main, "load_json", lambda path, default: default)
     monkeypatch.setattr(main, "preload_history", lambda symbols=None: None)
     monkeypatch.setattr(main, "get_usdt_balance", lambda: 1000.0)
-    price_holder = {"price": initial_price}
-    monkeypatch.setattr(main, "get_price", lambda symbol: price_holder["price"])
+    if isinstance(initial_prices, dict):
+        default_price = next(iter(initial_prices.values()))
+        price_holder = {
+            symbol: float(initial_prices.get(symbol, default_price))
+            for symbol in trading_pairs
+        }
+    else:
+        price_holder = {symbol: float(initial_prices) for symbol in trading_pairs}
+
+    def _get_price(symbol):
+        return price_holder[symbol]
+
+    monkeypatch.setattr(main, "get_price", _get_price)
     monkeypatch.setattr(main, "get_news_headlines", lambda symbol: [])
     monkeypatch.setattr(
         main, "update_balance", lambda balance, positions, price_cache: balance["usdt"]
@@ -75,7 +88,7 @@ def test_trailing_stop_updates(monkeypatch, tmp_path):
     assert pos["take_profit"] == pytest.approx(104.0)
 
     
-    price_holder["price"] = 103.0
+    price_holder["BTCUSDT"] = 103.0
     main.trade()
     pos = db.get_open_positions()["BTCUSDT"]
     assert pos["trail_price"] == pytest.approx(103.0)
@@ -95,3 +108,29 @@ def test_take_profit_positive_after_fees(monkeypatch, tmp_path):
     net_profit = take_profit * (1 - main.FEE_RATE) - entry * (1 + main.FEE_RATE)
 
     assert net_profit > 0
+
+def test_take_profit_does_not_block_buy(monkeypatch, tmp_path):
+    prices = {"BTCUSDT": 110.0, "ETHUSDT": 50.0}
+    main, db, price_holder = _bootstrap_main(
+        monkeypatch, tmp_path, prices, trading_pairs=["BTCUSDT", "ETHUSDT"]
+    )
+    trade_id = db.log_trade("BTCUSDT", "BUY", 1.0, 100.0)
+    db.upsert_position("BTCUSDT", 1.0, 100.0, 95.0, 105.0, trade_id, 100.0, 5.0)
+
+    monkeypatch.setattr(
+        main.strategy, "should_buy", lambda symbol, price, headlines: symbol == "ETHUSDT"
+    )
+    monkeypatch.setattr(
+        main,
+        "calculate_position_size",
+        lambda *args, **kwargs: (0.3, 48.0, None),
+    )
+
+    price_holder["BTCUSDT"] = 110.0
+    price_holder["ETHUSDT"] = 50.0
+
+    main.trade()
+
+    positions = db.get_open_positions()
+    assert "BTCUSDT" not in positions
+    assert positions["ETHUSDT"]["entry"] == pytest.approx(50.0)
