@@ -1,4 +1,5 @@
 import importlib
+import json
 import sys
 from pathlib import Path
 
@@ -134,3 +135,18 @@ def test_take_profit_does_not_block_buy(monkeypatch, tmp_path):
     positions = db.get_open_positions()
     assert "BTCUSDT" not in positions
     assert positions["ETHUSDT"]["entry"] == pytest.approx(50.0)
+
+
+def test_stop_skip_when_loss(monkeypatch, tmp_path):
+    main, db, price_holder = _bootstrap_main(monkeypatch, tmp_path, 98.0)
+    trade_id = db.log_trade("BTCUSDT", "BUY", 1.0, 100.0)
+    db.upsert_position("BTCUSDT", 1.0, 100.0, 99.0, 150.0, trade_id, 100.0, 1.0)
+
+    notifications = []
+    monkeypatch.setattr(main, "send", lambda msg: notifications.append(msg))
+
+    main.trade()
+
+    positions = db.get_open_positions()
+    assert "BTCUSDT" in positions
+    assert any("skipped" in msg.lower() for msg in notifications)
