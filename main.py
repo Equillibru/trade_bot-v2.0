@@ -428,6 +428,17 @@ def _execute_decision(decision: dict) -> None:
             profit,
             pnl,
         )
+    elif reason == "stop_loss":
+        send(
+            f"🛑 STOP {symbol} at ${price:.2f} — PnL: ${profit:.2f} USDT ({pnl:.2f}%) | Balance: ${binance_usdt:.2f} — {now}"
+        )
+        logger.info(
+            "🛑 STOP %s at $%.2f | PnL: $%.2f USDT (%.2f%%)",
+            symbol,
+            price,
+            profit,
+            pnl,
+        )
     else:
         send(
             f"✅ CLOSE {symbol} at ${price:.2f} — Profit: ${profit:.2f} USDT (+{pnl:.2f}%) | Balance: ${binance_usdt:.2f} — {now}"
@@ -1099,48 +1110,27 @@ def trade():
 
             
             if stop is not None and price <= stop:
+                decision = {
+                    "action": "sell",
+                    "symbol": symbol,
+                    "qty": qty,
+                    "price": price,
+                    "profit": profit,
+                    "pnl_pct": pnl,
+                    "trade_id": pos.get("trade_id"),
+                    "current_value": current_value,
+                    "reason": "stop_loss",
+                    "timestamp": now,
+                }
                 if profit < 0:
-                    logger.warning(
-                        "⏸️ STOP for %s skipped at $%.2f — unrealized PnL $%.2f (%.2f%%)",
-                        symbol,
-                        price,
-                        profit,
-                        pnl,
+                    question = (
+                        f"Stop-loss hit for {symbol}. SELL {qty} at ${price:.2f} and realize ${profit:.2f} USDT ({pnl:.2f}%)?"
                     )
-                    send(
-                        f"⏸️ STOP {symbol} skipped at ${price:.2f} — unrealized PnL ${profit:.2f} USDT ({pnl:.2f}%) remains negative"
-                    )
+                    _store_pending_decision(decision, question)
                 else:
-                    order_info = place_order(symbol, "sell", qty)
-                    logger.info("   ↳ order: %s", order_info)
-                    trade_id = pos.get("trade_id")
-                    sell_value = current_value
-                    db.update_trade_pnl(trade_id, profit, profit, pnl)
-                    db.remove_position(symbol)
-                    del positions[symbol]
-
-                    if not LIVE_MODE:
-                        SIM_USDT_BALANCE += sell_value
-                        client.get_asset_balance = lambda asset: {"free": str(SIM_USDT_BALANCE)}
-
-                        total = update_balance(balance, positions, price_cache)
-                    binance_usdt = balance["usdt"]
-                    send(
-                        f"🛑 STOP {symbol} at ${price:.2f} — PnL: ${profit:.2f} USDT ({pnl:.2f}%) | Balance: ${binance_usdt:.2f} — {now}"
-                    )
-                    logger.info(
-                        "🛑 STOP %s at $%.2f | PnL: $%.2f USDT (%.2f%%)",
-                        symbol,
-                        price,
-                        profit,
-                        pnl,
-                    )
-                    logger.info(
-                        "   ↳ Balance now $%.2f USDT, Total $%.2f",
-                        binance_usdt,
-                        total,
-                    )
-                    continue
+                    _execute_decision(decision)
+                    positions.pop(symbol, None)
+                continue
 
             take_profit = pos.get("take_profit")
             if take_profit and price >= take_profit:
@@ -1156,10 +1146,14 @@ def trade():
                     "reason": "take_profit",
                     "timestamp": now,
                 }
-                question = (
-                    f"Take profit on {symbol}? SELL {qty} at ${price:.2f} for ${profit:.2f} USDT (+{pnl:.2f}%)"
-                )
-                _store_pending_decision(decision, question)
+                if profit < 0:
+                    question = (
+                        f"Take profit signal for {symbol} would lose ${abs(profit):.2f} USDT ({pnl:.2f}%). Confirm SELL {qty}?"
+                    )
+                    _store_pending_decision(decision, question)
+                else:
+                    _execute_decision(decision)
+                    positions.pop(symbol, None)
                 continue
 
             if strategy.should_sell(symbol, pos, price, headlines):
@@ -1175,10 +1169,14 @@ def trade():
                     "reason": "strategy_exit",
                     "timestamp": now,
                 }
-                question = (
-                    f"Strategy exit for {symbol}? SELL {qty} at ${price:.2f} (PnL ${profit:.2f} / {pnl:.2f}%)"
-                )
-                _store_pending_decision(decision, question)
+                if profit < 0:
+                    question = (
+                        f"Strategy exit for {symbol} would realize ${profit:.2f} USDT ({pnl:.2f}%). SELL {qty}?"
+                    )
+                    _store_pending_decision(decision, question)
+                else:
+                    _execute_decision(decision)
+                    positions.pop(symbol, None)
                 continue
 
             continue
@@ -1186,12 +1184,6 @@ def trade():
         # For new positions, defer decision to strategy
         if buy_orders_this_cycle >= MAX_ORDERS_PER_CYCLE:
             continue
-
-        pending = PENDING_DECISIONS.get(symbol)
-        if pending and pending.get("action") == "buy":
-            logger.info("⏳ Awaiting confirmation to buy %s", symbol)
-            continue
-
 
         if not strategy.should_buy(symbol, price, headlines):
             continue
@@ -1272,10 +1264,7 @@ def trade():
             "timestamp": now,
         }
 
-        question = (
-            f"Open long on {symbol}? BUY {qty} at ${price:.2f} (cost ${actual_cost:.2f})"
-        )
-        _store_pending_decision(decision, question)
+        _execute_decision(decision)
         buy_orders_this_cycle += 1
         continue
 
