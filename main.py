@@ -466,7 +466,11 @@ def poll_telegram_commands():
     while True:
         try:
             url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
-            params = {"timeout": 30, "offset": offset}
+            params = {
+                "timeout": 30,
+                "offset": offset,
+                "allowed_updates": ["message", "poll_answer", "poll"],
+            }
             resp = requests.get(url, params=params, timeout=35)
             data = resp.json()
 
@@ -475,6 +479,18 @@ def poll_telegram_commands():
                 if "poll_answer" in update:
                     _handle_poll_answer(update["poll_answer"])
                     continue
+                poll = update.get("poll")
+                if poll:
+                    poll_id = poll.get("id")
+                    if poll_id is not None:
+                        symbol = PENDING_POLLS.get(poll_id) or PENDING_POLLS.get(
+                            str(poll_id)
+                        )
+                        if symbol:
+                            options = poll.get("options") or []
+                            if options and (options[0].get("voter_count") or 0) > 0:
+                                finalize_pending_decision(symbol, True)
+                                continue
                 msg = update.get("message", {})
                 chat_id = msg.get("chat", {}).get("id")
                 if str(chat_id) != str(TELEGRAM_CHAT_ID):
