@@ -122,6 +122,36 @@ def test_poll_confirmation_executes_buy(monkeypatch, tmp_path):
     assert "BTCUSDT" not in main.PENDING_DECISIONS
     assert poll_id not in main.PENDING_POLLS
 
+def test_poll_answer_update_executes_decision(monkeypatch, tmp_path):
+    main = _setup_main(monkeypatch, tmp_path)
+
+    monkeypatch.setattr(main.strategy, "should_sell", lambda *args, **kwargs: False)
+    monkeypatch.setattr(main.strategy, "should_buy", lambda *args, **kwargs: True)
+    monkeypatch.setattr(main, "get_stop_distance", lambda s, p: 1.5)
+    monkeypatch.setattr(
+        main,
+        "calculate_position_size",
+        lambda *args, **kwargs: (1.25, 97.5, ""),
+    )
+    monkeypatch.setattr(main, "get_price", lambda symbol: 101.0)
+
+    poll_id = "poll-answer"
+    monkeypatch.setattr(main, "send_poll", MagicMock(return_value=poll_id))
+    place_order_mock = MagicMock(return_value={})
+    monkeypatch.setattr(main, "place_order", place_order_mock)
+    monkeypatch.setattr(main.db, "log_trade", lambda *args, **kwargs: 2)
+    monkeypatch.setattr(main.db, "upsert_position", lambda *args, **kwargs: None)
+    monkeypatch.setattr(main.db, "get_open_positions", lambda: {})
+
+    main.trade()
+
+    poll_answer = {"poll_id": poll_id, "option_ids": [0]}
+    main._handle_poll_answer(poll_answer)
+
+    place_order_mock.assert_called_once_with("BTCUSDT", "buy", 1.25)
+    assert "BTCUSDT" not in main.PENDING_DECISIONS
+    assert poll_id not in main.PENDING_POLLS
+
 
 def test_strategy_sell_enqueues_poll(monkeypatch, tmp_path):
     main = _setup_main(monkeypatch, tmp_path)
