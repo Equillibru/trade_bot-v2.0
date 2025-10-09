@@ -144,9 +144,17 @@ def test_stop_skip_when_loss(monkeypatch, tmp_path):
 
     notifications = []
     monkeypatch.setattr(main, "send", lambda msg: notifications.append(msg))
+    polls = []
+    monkeypatch.setattr(
+        main,
+        "send_poll",
+        lambda question, options, **kwargs: polls.append((question, options)) or "poll-id",
+    )
 
     main.trade()
 
     positions = db.get_open_positions()
     assert "BTCUSDT" in positions
-    assert any("skipped" in msg.lower() for msg in notifications)
+    assert polls, "expected a Telegram poll to be sent for loss-making stop"
+    assert any("confirm" in msg.lower() for msg in notifications)
+    assert "BTCUSDT" in main.PENDING_DECISIONS
