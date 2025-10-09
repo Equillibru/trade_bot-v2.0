@@ -2,7 +2,11 @@ import os
 import sys
 import types
 import json
+from pathlib import Path
 from unittest.mock import MagicMock
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 # Stub external dependencies before importing main
 requests_mock = types.ModuleType('requests')
@@ -34,7 +38,12 @@ def test_send_poll(monkeypatch):
     post_mock = MagicMock()
     monkeypatch.setattr(main.requests, 'post', post_mock)
 
-    main.send_poll('Question?', ['Yes', 'No'], is_anonymous=False)
+    response = MagicMock()
+    response.json.return_value = {"result": {"poll": {"id": "123"}}}
+    response.raise_for_status = MagicMock()
+    post_mock.return_value = response
+
+    poll_id = main.send_poll('Question?', ['Yes', 'No'], is_anonymous=False)
 
     post_mock.assert_called_once()
     url = post_mock.call_args[0][0]
@@ -44,3 +53,5 @@ def test_send_poll(monkeypatch):
     assert data['question'] == 'Question?'
     assert data['options'] == json.dumps(['Yes', 'No'])
     assert data['is_anonymous'] is False
+    assert poll_id == "123"
+    response.raise_for_status.assert_called_once()
