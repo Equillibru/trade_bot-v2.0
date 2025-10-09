@@ -65,6 +65,10 @@ FEE_RATE = 0.001
 MIN_EXIT_PNL_PCT =1.0
 MAX_ORDERS_PER_CYCLE = 1
 
+# In-memory record of trade actions awaiting manual confirmation via Telegram
+PENDING_DECISIONS: dict[str, dict] = {}
+PENDING_POLLS: dict[str, str] = {}
+
 def calculate_fee_adjusted_take_profit(
     entry: float,
     stop: float | None,
@@ -243,7 +247,15 @@ def send(msg):
     call_with_retries(_send, name="Telegram", alert=False)
 
 def send_poll(question, options, **kwargs):
-    """Send a poll message to the configured Telegram chat."""
+    """Send a poll message to the configured Telegram chat.
+
+    Returns
+    -------
+    str | None
+        The Telegram poll identifier when available.  ``None`` is returned if
+        the API response cannot be parsed (e.g. during tests with simplified
+        mocks).
+    """
 
     def _send():
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPoll"
@@ -253,9 +265,199 @@ def send_poll(question, options, **kwargs):
             "options": json.dumps(options),
         }
         data.update(kwargs)
-        requests.post(url, data=data, timeout=10)
+        resp = requests.post(url, data=data, timeout=10)
+        try:
+            resp.raise_for_status()
+        except AttributeError:
+            # Lightweight mocks used in tests might not implement
+            # ``raise_for_status``.
+            pass
+        except Exception:
+            raise
+        try:
+            return resp.json()
+        except Exception:
+            return None
 
-    call_with_retries(_send, name="Telegram", alert=False)
+    result = call_with_retries(_send, name="Telegram", alert=False)
+    if isinstance(result, dict):
+        poll = result.get("result", {}).get("poll") or result.get("poll")
+        if isinstance(poll, dict):
+            return poll.get("id")
+    return None
+
+
+def _store_pending_decision(decision: dict, question: str) -> None:
+    """Persist a pending trade decision and notify the operator."""
+
+    symbol = decision["symbol"]
+    if symbol in PENDING_DECISIONS:
+        logger.info("⏳ Awaiting existing decision for %s", symbol)
+        return
+
+    poll_id = send_poll(
+        question,
+        ["Confirm", "Decline"],
+        is_anonymous=False,
+    )
+    if poll_id:
+        decision["poll_id"] = poll_id
+        PENDING_POLLS[poll_id] = symbol
+
+    PENDING_DECISIONS[symbol] = decision
+    action = decision["action"].upper()
+    price = decision["price"]
+    send(
+        f"🤔 {action} {symbol} at ${price:.2f}? Reply 'CONFIRM {symbol}' or 'DECLINE {symbol}' or answer the poll."
+    )
+    logger.info("🤔 Pending %s decision for %s", action, symbol)
+
+
+def finalize_pending_decision(symbol: str, approved: bool) -> bool:
+    """Execute or clear a pending decision once the user responds.
+
+    Returns ``True`` if a pending decision existed for ``symbol``.
+    """
+
+    decision = PENDING_DECISIONS.pop(symbol, None)
+    if not decision:
+        logger.info("ℹ️ No pending decision for %s", symbol)
+        return False
+
+    poll_id = decision.get("poll_id")
+    if poll_id:
+        PENDING_POLLS.pop(poll_id, None)
+
+    if approved:
+        _execute_decision(decision)
+    else:
+        action = decision["action"].upper()
+        price = decision["price"]
+        send(f"🚫 Declined {action} {symbol} at ${price:.2f}")
+        logger.info("🚫 Declined %s %s", action, symbol)
+    return True
+
+
+def _execute_decision(decision: dict) -> None:
+    """Run the stored trade flow for a confirmed decision."""
+
+    global SIM_USDT_BALANCE
+
+    symbol = decision["symbol"]
+    action = decision["action"]
+    price = decision["price"]
+    now = decision.get("timestamp") or datetime.datetime.now(
+        datetime.timezone.utc
+    ).strftime('%Y-%m-%d %H:%M')
+
+    balance = load_json(
+        BALANCE_FILE,
+        {"usdt": START_BALANCE, "total": START_BALANCE},
+    )
+
+    if action == "buy":
+        qty = decision["qty"]
+        stop_loss = decision.get("stop_loss")
+        take_profit = decision.get("take_profit")
+        stop_distance = decision.get("stop_distance")
+        actual_cost = decision.get("actual_cost", qty * price)
+        order_info = place_order(symbol, "buy", qty)
+        logger.info("   ↳ order: %s", order_info)
+
+        trade_id = db.log_trade(symbol, "BUY", qty, price)
+        db.upsert_position(
+            symbol,
+            qty,
+            price,
+            stop_loss,
+            take_profit,
+            trade_id,
+            price,
+            stop_distance,
+        )
+        if not LIVE_MODE:
+            SIM_USDT_BALANCE -= actual_cost
+            client.get_asset_balance = lambda asset: {"free": str(SIM_USDT_BALANCE)}
+
+        positions = db.get_open_positions()
+        price_cache = {symbol: price}
+        total = update_balance(balance, positions, price_cache)
+        binance_usdt = balance["usdt"]
+        send(
+            f"🟢 BUY {qty} {symbol} at ${price:.2f} — Value: ${actual_cost:.2f} USDT | Remaining: ${binance_usdt:.2f} — {now}"
+        )
+        logger.info(
+            "✅ BUY %s %s at $%.2f ($%.2f)", qty, symbol, price, actual_cost
+        )
+        return
+
+    # Sell confirmation flow
+    qty = decision["qty"]
+    profit = decision.get("profit", 0.0)
+    pnl = decision.get("pnl_pct", 0.0)
+    trade_id = decision.get("trade_id")
+    current_value = decision.get("current_value", qty * price)
+    order_info = place_order(symbol, "sell", qty)
+    logger.info("   ↳ order: %s", order_info)
+    if trade_id is None:
+        pos = db.get_open_positions().get(symbol)
+        if pos:
+            trade_id = pos.get("trade_id")
+    if trade_id is not None:
+        db.update_trade_pnl(trade_id, profit, profit, pnl)
+    db.remove_position(symbol)
+
+    if not LIVE_MODE:
+        SIM_USDT_BALANCE += current_value
+        client.get_asset_balance = lambda asset: {"free": str(SIM_USDT_BALANCE)}
+
+    positions = db.get_open_positions()
+    price_cache = {symbol: price}
+    total = update_balance(balance, positions, price_cache)
+    binance_usdt = balance["usdt"]
+
+    reason = decision.get("reason")
+    if reason == "take_profit":
+        send(
+            f"🎯 TARGET {symbol} at ${price:.2f} — Profit: ${profit:.2f} USDT (+{pnl:.2f}%) | Balance: ${binance_usdt:.2f} — {now}"
+        )
+        logger.info(
+            "🎯 TARGET %s at $%.2f | Profit: $%.2f USDT (+%.2f%%)",
+            symbol,
+            price,
+            profit,
+            pnl,
+        )
+    else:
+        send(
+            f"✅ CLOSE {symbol} at ${price:.2f} — Profit: ${profit:.2f} USDT (+{pnl:.2f}%) | Balance: ${binance_usdt:.2f} — {now}"
+        )
+        logger.info(
+            "✅ CLOSE %s at $%.2f | Profit: $%.2f USDT (+%.2f%%)",
+            symbol,
+            price,
+            profit,
+            pnl,
+        )
+    logger.info(
+        "   ↳ Balance now $%.2f USDT, Total $%.2f",
+        binance_usdt,
+        total,
+    )
+
+
+def _handle_poll_answer(update: dict) -> None:
+    poll_id = update.get("poll_id")
+    if not poll_id:
+        return
+    symbol = PENDING_POLLS.get(poll_id)
+    if not symbol:
+        return
+    option_ids = update.get("option_ids") or []
+    if not option_ids:
+        return
+    approved = option_ids[0] == 0
+    finalize_pending_decision(symbol, approved)
 
 def poll_telegram_commands():
     """Listen for manual trade commands sent via Telegram."""
@@ -270,6 +472,9 @@ def poll_telegram_commands():
 
             for update in data.get("result", []):
                 offset = update["update_id"] + 1
+                if "poll_answer" in update:
+                    _handle_poll_answer(update["poll_answer"])
+                    continue
                 msg = update.get("message", {})
                 chat_id = msg.get("chat", {}).get("id")
                 if str(chat_id) != str(TELEGRAM_CHAT_ID):
@@ -277,11 +482,24 @@ def poll_telegram_commands():
 
                 text = (msg.get("text") or "").strip()
                 parts = text.split()
+                if not parts:
+                    continue
+                cmd = parts[0].upper()
+
+                if cmd in {"CONFIRM", "DECLINE"}:
+                    if len(parts) < 2:
+                        send("⚠️ Provide the symbol, e.g. 'CONFIRM BTCUSDT'.")
+                        continue
+                    symbol = parts[1].upper()
+                    approved = cmd == "CONFIRM"
+                    if not finalize_pending_decision(symbol, approved):
+                        send(f"ℹ️ No pending decision for {symbol}")
+                    continue
+
                 if len(parts) < 2:
                     send_poll("Select action", ["BUY", "SELL"])
                     continue
 
-                cmd = parts[0].upper()
                 symbol = parts[1].upper()
 
                 if cmd == "BUY":
@@ -864,7 +1082,8 @@ def trade():
             )
 
             
-            if profit < 0:
+            if stop is not None and price <= stop:
+                if profit < 0:
                     logger.warning(
                         "⏸️ STOP for %s skipped at $%.2f — unrealized PnL $%.2f (%.2f%%)",
                         symbol,
@@ -909,69 +1128,41 @@ def trade():
 
             take_profit = pos.get("take_profit")
             if take_profit and price >= take_profit:
-                # Take-profit target reached; fee-adjusted target ensures realized PnL is positive
-                order_info = place_order(symbol, "sell", qty)
-                logger.info("   ↳ order: %s", order_info)
-                trade_id = pos.get("trade_id")
-                sell_value = current_value
-                db.update_trade_pnl(trade_id, profit, profit, pnl)
-                db.remove_position(symbol)
-                del positions[symbol]
-
-                if not LIVE_MODE:
-                    SIM_USDT_BALANCE += sell_value
-                    client.get_asset_balance = lambda asset: {"free": str(SIM_USDT_BALANCE)}
-
-                    total = update_balance(balance, positions, price_cache)
-                binance_usdt = balance["usdt"]
-                send(
-                    f"🎯 TARGET {symbol} at ${price:.2f} — Profit: ${profit:.2f} USDT (+{pnl:.2f}%) | Balance: ${binance_usdt:.2f} — {now}"
+                decision = {
+                    "action": "sell",
+                    "symbol": symbol,
+                    "qty": qty,
+                    "price": price,
+                    "profit": profit,
+                    "pnl_pct": pnl,
+                    "trade_id": pos.get("trade_id"),
+                    "current_value": current_value,
+                    "reason": "take_profit",
+                    "timestamp": now,
+                }
+                question = (
+                    f"Take profit on {symbol}? SELL {qty} at ${price:.2f} for ${profit:.2f} USDT (+{pnl:.2f}%)"
                 )
-                logger.info(
-                    "🎯 TARGET %s at $%.2f | Profit: $%.2f USDT (+%.2f%%)",
-                    symbol,
-                    price,
-                    profit,
-                    pnl,
-                )
-                logger.info(
-                    "   ↳ Balance now $%.2f USDT, Total $%.2f",
-                    binance_usdt,
-                    total,
-                )
+                _store_pending_decision(decision, question)
                 continue
 
             if strategy.should_sell(symbol, pos, price, headlines):
-                order_info = place_order(symbol, "sell", qty)
-                logger.info("   ↳ order: %s", order_info)
-                trade_id = pos.get("trade_id")
-                sell_value = current_value
-                db.update_trade_pnl(trade_id, profit, profit, pnl)
-                db.remove_position(symbol)
-                del positions[symbol]
-
-                if not LIVE_MODE:
-                    SIM_USDT_BALANCE += sell_value
-                    client.get_asset_balance = lambda asset: {"free": str(SIM_USDT_BALANCE)}
-
-                    total = update_balance(balance, positions, price_cache)
-                binance_usdt = balance["usdt"]
-                send(
-                    f"✅ CLOSE {symbol} at ${price:.2f} — Profit: ${profit:.2f} USDT (+{pnl:.2f}%) | Balance: ${binance_usdt:.2f} — {now}"
+                decision = {
+                    "action": "sell",
+                    "symbol": symbol,
+                    "qty": qty,
+                    "price": price,
+                    "profit": profit,
+                    "pnl_pct": pnl,
+                    "trade_id": pos.get("trade_id"),
+                    "current_value": current_value,
+                    "reason": "strategy_exit",
+                    "timestamp": now,
+                }
+                question = (
+                    f"Strategy exit for {symbol}? SELL {qty} at ${price:.2f} (PnL ${profit:.2f} / {pnl:.2f}%)"
                 )
-                logger.info(
-                    "✅ CLOSE %s at $%.2f | Profit: $%.2f USDT (+%.2f%%)",
-                    symbol,
-                    price,
-                    profit,
-                    pnl,
-                )
-                logger.info(
-                    "   ↳ Balance now $%.2f USDT, Total $%.2f",
-                    binance_usdt,
-                    total,
-                )
-
+                _store_pending_decision(decision, question)
                 continue
 
             continue
@@ -979,6 +1170,12 @@ def trade():
         # For new positions, defer decision to strategy
         if buy_orders_this_cycle >= MAX_ORDERS_PER_CYCLE:
             continue
+
+        pending = PENDING_DECISIONS.get(symbol)
+        if pending and pending.get("action") == "buy":
+            logger.info("⏳ Awaiting confirmation to buy %s", symbol)
+            continue
+
 
         if not strategy.should_buy(symbol, price, headlines):
             continue
@@ -1038,10 +1235,7 @@ def trade():
             logger.warning("❌ Skipped %s — %s", symbol, msg)
             continue
 
-        order_info = place_order(symbol, "buy", qty)
-        logger.info("   ↳ order: %s", order_info)
 
-        trade_id = db.log_trade(symbol, "BUY", qty, price)
         take_profit = calculate_fee_adjusted_take_profit(
             price,
             stop_loss,
@@ -1050,39 +1244,22 @@ def trade():
             RISK_REWARD,
             MIN_EXIT_PNL_PCT,
         )
-        db.upsert_position(
-            symbol,
-            qty,
-            price,
-            stop_loss,
-            take_profit,
-            trade_id,
-            price,
-            stop_distance,
-        )
-        positions[symbol] = {
-            "type": "LONG",
+        decision = {
+            "action": "buy",
+            "symbol": symbol,
             "qty": qty,
-            "entry": price,
+            "price": price,
             "stop_loss": stop_loss,
             "take_profit": take_profit,
-            "trail_price": price,
-            "trade_id": trade_id,
             "stop_distance": price - stop_loss if stop_loss is not None else stop_distance,
+            "actual_cost": actual_cost,
+            "timestamp": now,
         }
 
-        if not LIVE_MODE:
-            SIM_USDT_BALANCE -= actual_cost
-            client.get_asset_balance = lambda asset: {"free": str(SIM_USDT_BALANCE)}
-
-        total = update_balance(balance, positions, price_cache)
-        binance_usdt = balance["usdt"]
-        send(
-            f"🟢 BUY {qty} {symbol} at ${price:.2f} — Value: ${actual_cost:.2f} USDT | Remaining: ${binance_usdt:.2f} — {now}"
+        question = (
+            f"Open long on {symbol}? BUY {qty} at ${price:.2f} (cost ${actual_cost:.2f})"
         )
-        logger.info(
-            "✅ BUY %s %s at $%.2f ($%.2f)", qty, symbol, price, actual_cost
-        )
+        _store_pending_decision(decision, question)
         buy_orders_this_cycle += 1
         continue
 
