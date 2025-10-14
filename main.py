@@ -710,17 +710,29 @@ def wallet_summary(balance_path: str = BALANCE_FILE):
 def get_usdt_balance():
     """Fetch available USDT balance."""
     global SIM_USDT_BALANCE
-    
+
     def _get():
         bal = client.get_asset_balance(asset="USDT") or {}
         return float(bal.get("free", 0))
 
     bal = call_with_retries(_get, name="Binance USDT balance")
-    if bal is None:
-        bal = SIM_USDT_BALANCE
-    if not LIVE_MODE:
-        SIM_USDT_BALANCE = bal
-    return bal
+
+    if LIVE_MODE:
+        return bal if bal is not None else 0.0
+
+    # In simulation mode we maintain an independent virtual balance so the bot
+    # can operate without real funds.  When the exchange returns ``None`` or a
+    # non-positive value (common with demo API keys), we keep the previously
+    # tracked simulated balance instead of overwriting it with zero.  This keeps
+    # the paper trading balance from being wiped out and allows trades to
+    # proceed on subsequent cycles.
+    if bal is None or bal <= 0:
+        if SIM_USDT_BALANCE <= 0:
+            SIM_USDT_BALANCE = START_BALANCE
+        return SIM_USDT_BALANCE
+
+    SIM_USDT_BALANCE = bal
+    return SIM_USDT_BALANCE
 
 def get_price(symbol):
     try:
