@@ -19,6 +19,31 @@ from risk import calculate_position_size
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+def _getenv_int(name: str, default: int) -> int:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        logger.warning(
+            "Invalid integer for %s: %s. Using default %s.", name, value, default
+        )
+        return default
+
+
+def _getenv_float(name: str, default: float) -> float:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except ValueError:
+        logger.warning(
+            "Invalid float for %s: %s. Using default %.3f.", name, value, default
+        )
+        return default
+
 def _require_env_vars(names):
     """Ensure required environment variables are present."""
     missing = [name for name in names if not os.getenv(name)]
@@ -64,6 +89,19 @@ RISK_REWARD = 2.0
 FEE_RATE = 0.001
 MIN_EXIT_PNL_PCT =1.0
 MAX_ORDERS_PER_CYCLE = 1
+
+BALANCE_REMINDER_INTERVAL_SECONDS = _getenv_int(
+    "BALANCE_REMINDER_INTERVAL_SECONDS", 60 * 60
+)
+BALANCE_PRICE_SHIFT_THRESHOLD = _getenv_float(
+    "BALANCE_PRICE_SHIFT_THRESHOLD", 0.05
+)
+BALANCE_REMINDER_INTERVAL = datetime.timedelta(
+    seconds=BALANCE_REMINDER_INTERVAL_SECONDS
+)
+
+LAST_BALANCE_REMINDER: datetime.datetime | None = None
+PRICE_BASELINE: dict[str, float] = {}
 
 # In-memory record of trade actions awaiting manual confirmation via Telegram
 PENDING_DECISIONS: dict[str, dict] = {}
@@ -706,6 +744,69 @@ def wallet_summary(balance_path: str = BALANCE_FILE):
 
     return summary
 
+def maybe_send_balance_reminder(
+    total: float,
+    binance_usdt: float,
+    now_str: str,
+    price_cache: dict[str, float] | None,
+) -> bool:
+    """Send a balance reminder when the schedule or price action warrants it."""
+
+    global LAST_BALANCE_REMINDER, PRICE_BASELINE
+
+    cache_items = list(price_cache.items()) if price_cache else []
+    for symbol, price in cache_items:
+        if price and price > 0 and symbol not in PRICE_BASELINE:
+            PRICE_BASELINE[symbol] = price
+
+    now_dt = datetime.datetime.now(datetime.timezone.utc)
+    reason_type: str | None = None
+    reason_detail: str | None = None
+
+    if LAST_BALANCE_REMINDER is None:
+        reason_type = "initial"
+    else:
+        if now_dt - LAST_BALANCE_REMINDER >= BALANCE_REMINDER_INTERVAL:
+            reason_type = "scheduled"
+        else:
+            for symbol, price in cache_items:
+                baseline = PRICE_BASELINE.get(symbol)
+                if (
+                    price
+                    and price > 0
+                    and baseline
+                    and baseline > 0
+                ):
+                    change = abs(price - baseline) / baseline
+                    if change >= BALANCE_PRICE_SHIFT_THRESHOLD:
+                        reason_type = "major_shift"
+                        reason_detail = f"{symbol} moved {change * 100:.2f}%"
+                        break
+
+    if reason_type is None:
+        return False
+
+    message = f"📊 Updated Balance: ${binance_usdt:.2f} (Total ${total:.2f}) — {now_str}"
+    if reason_type == "major_shift" and reason_detail:
+        message += f" — Triggered by {reason_detail} since last update"
+
+    send(message)
+
+    if reason_type == "major_shift" and reason_detail:
+        logger.info("📊 Balance reminder triggered by %s", reason_detail)
+    elif reason_type == "scheduled":
+        logger.info("⏰ Hourly balance reminder sent")
+    elif reason_type == "initial":
+        logger.info("ℹ️ Initial balance reminder sent")
+
+    LAST_BALANCE_REMINDER = now_dt
+    for symbol, price in cache_items:
+        if price and price > 0:
+            PRICE_BASELINE[symbol] = price
+
+    return True
+
+
 # Get USDT balance from Binance
 def get_usdt_balance():
     """Fetch available USDT balance."""
@@ -1283,9 +1384,7 @@ def trade():
     # Balance update
     total = update_balance(balance, positions, price_cache)
     binance_usdt = balance["usdt"]
-    send(
-        f"📊 Updated Balance: ${binance_usdt:.2f} (Total ${total:.2f}) — {now}"
-    )
+    maybe_send_balance_reminder(total, binance_usdt, now, price_cache)
 
     avg = db.average_profit_last_n_trades(10)
     logger.info("📈 Avg profit last 10 trades: %.2f%%", avg)
