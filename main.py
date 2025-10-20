@@ -5,6 +5,7 @@ import json
 import sqlite3
 import argparse
 import logging
+import string
 import db
 import requests
 import threading #Telegram two-way communication
@@ -552,6 +553,24 @@ def normalize_command_token(token: str | None) -> str:
 
     if "@" in cleaned:
         cleaned = cleaned.split("@", 1)[0]
+
+    cleaned = cleaned.strip()
+    if not cleaned:
+        return ""
+
+    cleaned = cleaned.strip(string.punctuation)
+    if not cleaned:
+        return ""
+
+    allowed = set(string.ascii_letters + string.digits + "_")
+    for idx, ch in enumerate(cleaned):
+        if ch not in allowed:
+            cleaned = cleaned[:idx]
+            break
+
+    cleaned = cleaned.strip(string.punctuation)
+    if not cleaned:
+        return ""
 
     return cleaned.upper()
 
