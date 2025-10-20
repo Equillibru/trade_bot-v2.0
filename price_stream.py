@@ -1,6 +1,5 @@
 import os
 import threading
-import time
 import logging
 from typing import Dict, List, Optional
 
@@ -43,8 +42,11 @@ def _start_manager() -> None:
 
 def _monitor() -> None:
     """Monitor websocket connection and restart if needed."""
-    while not _monitor_stop.is_set():
-        time.sleep(30)
+    # The monitor loop wakes up periodically to check whether the websocket
+    # manager is still alive.  Using ``Event.wait`` lets us react immediately to
+    # shutdown requests instead of being stuck in ``time.sleep`` for the full
+    # interval, which previously delayed ``stop_stream`` for up to 30 seconds.
+    while not _monitor_stop.wait(30):
         if _twm and not _twm.is_alive():
             try:
                 _twm.stop()
@@ -56,7 +58,9 @@ def _monitor() -> None:
 def start_stream(trading_pairs: List[str]) -> None:
     """Begin streaming ticker prices for the given trading pairs."""
     global _symbols, _monitor_thread
-    _symbols = trading_pairs
+    # Copy the provided list so later mutations by the caller do not
+    # concurrently alter the monitor thread's subscription list.
+    _symbols = list(trading_pairs)
     _monitor_stop.clear()
     _start_manager()
     if not _monitor_thread or not _monitor_thread.is_alive():
@@ -74,7 +78,9 @@ def stop_stream() -> None:
             pass
         _twm = None
     if _monitor_thread and _monitor_thread.is_alive():
-        _monitor_thread.join()
+        _monitor_thread.join(timeout=5)
+        if _monitor_thread.is_alive():
+            logger.warning("monitor thread did not shut down cleanly")
     _monitor_thread = None
     _symbols = []
     with _prices_lock:
