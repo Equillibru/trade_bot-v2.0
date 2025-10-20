@@ -91,7 +91,7 @@ MIN_EXIT_PNL_PCT =1.0
 MAX_ORDERS_PER_CYCLE = 1
 
 BALANCE_REMINDER_INTERVAL_SECONDS = _getenv_int(
-    "BALANCE_REMINDER_INTERVAL_SECONDS", 60 * 60
+    "BALANCE_REMINDER_INTERVAL_SECONDS", 3 * 60 * 60
 )
 BALANCE_PRICE_SHIFT_THRESHOLD = _getenv_float(
     "BALANCE_PRICE_SHIFT_THRESHOLD", 0.05
@@ -100,12 +100,28 @@ BALANCE_REMINDER_INTERVAL = datetime.timedelta(
     seconds=BALANCE_REMINDER_INTERVAL_SECONDS
 )
 
+QUIET_HOURS_START = 20  # 20:00
+QUIET_HOURS_END = 9  # 09:00
+
 LAST_BALANCE_REMINDER: datetime.datetime | None = None
 PRICE_BASELINE: dict[str, float] = {}
 
 # In-memory record of trade actions awaiting manual confirmation via Telegram
 PENDING_DECISIONS: dict[str, dict] = {}
 PENDING_POLLS: dict[str, str] = {}
+
+def is_within_quiet_hours(dt: datetime.datetime) -> bool:
+    """Return True when the provided datetime falls within quiet hours."""
+
+    local_dt = dt.astimezone()
+    current_minutes = local_dt.hour * 60 + local_dt.minute
+    start_minutes = QUIET_HOURS_START * 60
+    end_minutes = QUIET_HOURS_END * 60
+
+    if QUIET_HOURS_START <= QUIET_HOURS_END:
+        return start_minutes <= current_minutes < end_minutes
+
+    return current_minutes >= start_minutes or current_minutes < end_minutes
 
 def calculate_fee_adjusted_take_profit(
     entry: float,
@@ -785,6 +801,10 @@ def maybe_send_balance_reminder(
 
     if reason_type is None:
         return False
+        
+    if is_within_quiet_hours(now_dt):
+        logger.info("🔕 Balance reminder skipped during quiet hours (%s)", now_str)
+        return False
 
     message = f"📊 Updated Balance: ${binance_usdt:.2f} (Total ${total:.2f}) — {now_str}"
     if reason_type == "major_shift" and reason_detail:
@@ -795,7 +815,7 @@ def maybe_send_balance_reminder(
     if reason_type == "major_shift" and reason_detail:
         logger.info("📊 Balance reminder triggered by %s", reason_detail)
     elif reason_type == "scheduled":
-        logger.info("⏰ Hourly balance reminder sent")
+        logger.info("⏰ 3-Hour balance reminder sent")
     elif reason_type == "initial":
         logger.info("ℹ️ Initial balance reminder sent")
 
