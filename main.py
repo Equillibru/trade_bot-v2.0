@@ -1472,6 +1472,9 @@ def trade():
         }
 
         _execute_decision(decision)
+        positions = db.get_open_positions()
+        binance_usdt = get_usdt_balance()
+        balance["usdt"] = binance_usdt
         buy_orders_this_cycle += 1
         continue
 
