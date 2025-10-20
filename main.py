@@ -1448,6 +1448,21 @@ def trade():
             continue
 
         # Live cap enforcement: only 25% of START_BALANCE can be invested
+        # Live cap enforcement: only 25% of START_BALANCE can be invested.
+        # Ensure all open positions contribute to the invested total by
+        # backfilling any missing prices with fresh quotes (or their entry
+        # price as a last resort).  Previously, uncached symbols counted as
+        # zero, allowing trades to exceed ``DAILY_MAX_INVEST``.
+        missing_prices = [sym for sym in positions if sym not in price_cache]
+        for sym in missing_prices:
+            latest = get_price(sym)
+            if latest and latest > 0:
+                price_cache[sym] = latest
+                continue
+            entry_price = positions[sym].get("entry")
+            if entry_price:
+                price_cache[sym] = entry_price
+
         current_invested = sum(
             p["qty"] * price_cache.get(sym, 0) for sym, p in positions.items()
         )
