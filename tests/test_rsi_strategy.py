@@ -57,7 +57,7 @@ def test_rsi_sell_on_profit_target_without_overbought():
     assert strat.should_sell(symbol, pos, take_profit, headlines) is True
     
 def test_rsi_sell_waits_for_one_percent_net_profit():
-    symbol = "MATICUSDT"
+    symbol = "AVAXUSDT"
     headlines: list[str] = []
     position = {"entry": 100.0, "qty": 1.0}
 
