@@ -160,12 +160,12 @@ def calculate_fee_adjusted_take_profit(
     entry_cost = entry * (1 + fee_rate)
     stop_value = stop * (1 - fee_rate)
     risk_after_fees = max(entry_cost - stop_value, 0.0)
-    risk_distance =max(trail - stop, 0.0)
+    risk_distance = max(trail - stop, 0.0)
 
     base_target = entry + risk_distance * risk_reward
     required_profit = max(
         risk_after_fees * risk_reward,
-        entry * (min_exit_pnl_pct / 100.0),
+        entry_cost * (min_exit_pnl_pct / 100.0),
     )
 
     net_profit = base_target * (1 - fee_rate) - entry_cost
