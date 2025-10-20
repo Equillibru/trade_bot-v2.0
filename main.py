@@ -71,6 +71,16 @@ BINANCE_KEY = os.getenv("BINANCE_API_KEY")
 BINANCE_SECRET = os.getenv("BINANCE_SECRET_KEY")
 NEWSAPI_KEY = os.getenv("NEWSAPI_KEY")
 
+TRADING_MODE = os.getenv("TRADING_MODE", "spot").strip().lower()
+SUPPORTED_TRADING_MODES = {"spot", "margin"}
+if TRADING_MODE not in SUPPORTED_TRADING_MODES:
+    raise SystemExit(
+        "TRADING_MODE must be one of 'spot' or 'margin' (case-insensitive), "
+        f"got: {TRADING_MODE!r}"
+    )
+
+MARGIN_SIDE_EFFECT_TYPE = os.getenv("MARGIN_SIDE_EFFECT_TYPE", "").strip().upper()
+
 client = Client(BINANCE_KEY, BINANCE_SECRET)
 
 LIVE_MODE = False
@@ -577,7 +587,7 @@ def poll_telegram_commands():
                         send(f"ℹ️ No pending decision for {symbol}")
                     continue
 
-                 if cmd == "BALANCE":
+                if cmd == "BALANCE":
                     send_balance_breakdown()
                     continue
 
@@ -874,12 +884,26 @@ def maybe_send_balance_reminder(
 
 # Get USDT balance from Binance
 def get_usdt_balance():
-    """Fetch available USDT balance."""
+    """Fetch available USDT balance for the configured trading mode"""
     global SIM_USDT_BALANCE
 
-    def _get():
+    def _get_spot_balance() -> float:
         bal = client.get_asset_balance(asset="USDT") or {}
-        return float(bal.get("free", 0))
+        return float(bal.get("free", 0) or 0.0)
+
+    def _get_margin_balance() -> float:
+        account = client.get_margin_account() or {}
+        assets = account.get("userAssets") or account.get("balances") or []
+        for asset in assets:
+            if asset.get("asset") == "USDT":
+                free_value = asset.get("free") or asset.get("freeBalance") or 0.0
+                return float(free_value or 0.0)
+        return 0.0
+
+    def _get():
+        if TRADING_MODE == "margin":
+            return _get_margin_balance()
+        return _get_spot_balance()
 
     bal = call_with_retries(_get, name="Binance USDT balance")
 
@@ -946,16 +970,21 @@ def fetch_historical_prices(symbol: str, limit: int) -> list[float]:
     
 def place_order(symbol, side, qty):
     def _order():
-        return client.create_order(
-            symbol=symbol,
-            side=side.upper(),
-            type="MARKET",
-            quantity=qty,
-        )
+        params = {
+            "symbol": symbol,
+            "side": side.upper(),
+            "type": "MARKET",
+            "quantity": qty,
+        }
+        if TRADING_MODE == "margin":
+            if MARGIN_SIDE_EFFECT_TYPE:
+                params["sideEffectType"] = MARGIN_SIDE_EFFECT_TYPE
+            return client.create_margin_order(**params)
+        return client.create_order(**params)
     if LIVE_MODE:
         return call_with_retries(_order, name=f"Binance order {symbol}")
     else:
-        logger.info("[SIMULATED] %s %s %s", side, qty, symbol)
+        logger.info("[SIMULATED %s] %s %s %s", TRADING_MODE.upper(), side, qty, symbol)
         return {"simulated": True}
 
 def get_news_headlines(symbol, limit=5):
