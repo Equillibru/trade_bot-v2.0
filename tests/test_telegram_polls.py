@@ -115,3 +115,16 @@ def test_trade_prompt_mentions_balance(monkeypatch):
     main._store_pending_decision(decision, "Proceed?")
 
     assert any("BALANCE" in msg for msg in messages)
+
+
+def test_normalize_command_token_handles_bot_commands():
+    normalize = main.normalize_command_token
+
+    assert normalize("balance") == "BALANCE"
+    assert normalize("BALANCE") == "BALANCE"
+    assert normalize("/balance") == "BALANCE"
+    assert normalize("/balance@MyBot") == "BALANCE"
+    assert normalize(" /confirm@TraderBot") == "CONFIRM"
+    assert normalize("/") == ""
+    assert normalize("") == ""
+    assert normalize(None) == ""
