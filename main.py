@@ -577,6 +577,10 @@ def poll_telegram_commands():
                         send(f"ℹ️ No pending decision for {symbol}")
                     continue
 
+                 if cmd == "BALANCE":
+                    send_balance_breakdown()
+                    continue
+
                 if len(parts) < 2:
                     send_poll("Select action", ["BUY", "SELL"])
                     continue
@@ -759,6 +763,47 @@ def wallet_summary(balance_path: str = BALANCE_FILE):
     }
 
     return summary
+
+    
+def format_balance_breakdown(summary: dict | None = None) -> str:
+    """Format a human readable breakdown of liquid funds and positions."""
+
+    if summary is None:
+        summary = wallet_summary()
+
+    start_bal = float(summary.get("start_balance", 0.0) or 0.0)
+    current_bal = float(summary.get("current_balance", 0.0) or 0.0)
+    positions = summary.get("positions") or []
+
+    lines = [
+        "💼 Balance breakdown:",
+        f"• Starting balance: ${start_bal:.2f}",
+        f"• Liquidity: ${current_bal:.2f}",
+    ]
+
+    if positions:
+        lines.append("• Positions:")
+        for pos in positions:
+            symbol = pos.get("symbol", "?")
+            qty = pos.get("qty", 0)
+            entry = pos.get("entry")
+            qty_str = f"{qty:g}" if isinstance(qty, (int, float)) else str(qty)
+            if isinstance(entry, (int, float)):
+                lines.append(f"  - {symbol}: {qty_str} @ ${float(entry):.2f}")
+            else:
+                lines.append(f"  - {symbol}: {qty_str}")
+    else:
+        lines.append("• Positions: none")
+
+    return "\n".join(lines)
+
+
+def send_balance_breakdown() -> None:
+    """Fetch the wallet summary and deliver it to Telegram."""
+
+    summary = wallet_summary()
+    message = format_balance_breakdown(summary)
+    send(message)
 
 def maybe_send_balance_reminder(
     total: float,
