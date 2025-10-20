@@ -50,3 +50,22 @@ def test_ma_sell_waits_for_one_percent_net_profit():
     )
     strat.seed_history(symbol, history)
     assert strat.should_sell(symbol, position, 102.0, headlines) is True
+
+
+def test_ma_sell_allows_exact_one_percent_profit():
+    symbol = "LTCUSDT"
+    headlines: list[str] = []
+    position = {"entry": 100.0, "qty": 1.0}
+    history = [104.0, 103.0, 102.0]
+
+    strat = MovingAverageCrossStrategy(
+        short_window=2,
+        long_window=3,
+        fee_rate=0.001,
+        min_pnl_pct=1.0,
+    )
+    strat.seed_history(symbol, history)
+
+    fee_rate = 0.001
+    target_price = 1.01 * position["entry"] * (1 + fee_rate) / (1 - fee_rate)
+    assert strat.should_sell(symbol, position, target_price, headlines) is True
