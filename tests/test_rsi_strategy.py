@@ -82,3 +82,23 @@ def test_rsi_sell_waits_for_one_percent_net_profit():
     strat.should_sell(symbol, position, 100.0, headlines)
     strat.should_sell(symbol, position, 101.0, headlines)
     assert strat.should_sell(symbol, position, 102.0, headlines) is True
+
+
+def test_rsi_sell_allows_exact_one_percent_profit():
+    symbol = "BNBUSDT"
+    headlines: list[str] = []
+    position = {"entry": 50.0, "qty": 1.0}
+
+    fee_rate = 0.001
+    strat = RSIStrategy(
+        period=2,
+        oversold=30,
+        overbought=70,
+        fee_rate=fee_rate,
+        min_pnl_pct=1.0,
+    )
+
+    strat.should_sell(symbol, position, 49.5, headlines)
+    strat.should_sell(symbol, position, 50.0, headlines)
+    target_price = 1.01 * position["entry"] * (1 + fee_rate) / (1 - fee_rate)
+    assert strat.should_sell(symbol, position, target_price, headlines) is True
