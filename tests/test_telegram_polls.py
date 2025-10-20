@@ -55,3 +55,43 @@ def test_send_poll(monkeypatch):
     assert data['is_anonymous'] is False
     assert poll_id == "123"
     response.raise_for_status.assert_called_once()
+
+
+def test_format_balance_breakdown_includes_positions():
+    summary = {
+        "start_balance": 100.0,
+        "current_balance": 80.5,
+        "positions": [
+            {"symbol": "BTCUSDT", "qty": 0.5, "entry": 20000},
+            {"symbol": "ETHUSDT", "qty": 1.25, "entry": 1500.1234},
+        ],
+    }
+
+    message = main.format_balance_breakdown(summary)
+
+    assert "Starting balance: $100.00" in message
+    assert "Liquidity: $80.50" in message
+    assert "BTCUSDT" in message and "0.5 @ $20000.00" in message
+    assert "ETHUSDT" in message and "1.25 @ $1500.12" in message
+
+
+def test_send_balance_breakdown_uses_wallet_summary(monkeypatch):
+    summary = {
+        "start_balance": 120.0,
+        "current_balance": 95.0,
+        "positions": [],
+    }
+
+    monkeypatch.setattr(main, "wallet_summary", lambda: summary)
+
+    sent = {}
+
+    def fake_send(msg):
+        sent["msg"] = msg
+
+    monkeypatch.setattr(main, "send", fake_send)
+
+    main.send_balance_breakdown()
+
+    assert "Starting balance: $120.00" in sent["msg"]
+    assert "Positions: none" in sent["msg"]
