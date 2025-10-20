@@ -536,6 +536,25 @@ def _handle_poll_answer(update: dict) -> None:
         return
     approved = option_ids[0] == 0
     finalize_pending_decision(symbol, approved)
+def normalize_command_token(token: str | None) -> str:
+    """Return a normalized command keyword from a Telegram message token."""
+
+    if not token:
+        return ""
+
+    cleaned = token.strip()
+    if not cleaned:
+        return ""
+
+    cleaned = cleaned.lstrip("/")
+    if not cleaned:
+        return ""
+
+    if "@" in cleaned:
+        cleaned = cleaned.split("@", 1)[0]
+
+    return cleaned.upper()
+
 
 def poll_telegram_commands():
     """Listen for manual trade commands sent via Telegram."""
@@ -578,7 +597,9 @@ def poll_telegram_commands():
                 parts = text.split()
                 if not parts:
                     continue
-                cmd = parts[0].upper()
+                cmd = normalize_command_token(parts[0])
+                if not cmd:
+                    continue
 
                 if cmd in {"CONFIRM", "DECLINE"}:
                     if len(parts) < 2:
