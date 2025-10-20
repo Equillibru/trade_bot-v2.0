@@ -2,6 +2,7 @@ import importlib
 import logging
 import sys
 import types
+from collections import deque
 from pathlib import Path
 import json
 import pytest
