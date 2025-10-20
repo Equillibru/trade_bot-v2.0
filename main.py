@@ -1151,18 +1151,19 @@ def preload_history(symbols=None):
     long_window = getattr(strategy, "long_window", 0)
     for sym in symbols or WATCHLIST:
         prices = load_prices(sym, history_limit)
+        fetched: list[float] = []
         if len(prices) < history_limit:
             logger.info(
                 "Preloading %s history: have %d, need %d", sym, len(prices), history_limit
             )
             fetched = fetch_historical_prices(sym, history_limit)
             prices = load_prices(sym, history_limit)
-            
+
         if len(prices) < history_limit and fetched:
-                # Fallback in case ``fetch_historical_prices`` didn't persist
-                for p in fetched:
-                    save_price(sym, p)
-                prices = load_prices(sym, history_limit)
+            # Fallback in case ``fetch_historical_prices`` didn't persist
+            for p in fetched:
+                save_price(sym, p)
+            prices = load_prices(sym, history_limit)
 
         if len(prices) < long_window:
             logger.warning(
