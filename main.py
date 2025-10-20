@@ -760,9 +760,30 @@ def wallet_summary(balance_path: str = BALANCE_FILE):
         Dictionary with starting balance, current balance and a list of
         positions containing symbol, quantity and entry price.
     """
-    data = load_json(balance_path, {"usdt": START_BALANCE, "start_balance": START_BALANCE})
-    start_bal = data.get("start_balance", START_BALANCE)
-    current_bal = get_usdt_balance()
+    data = load_json(
+        balance_path, {"usdt": START_BALANCE, "start_balance": START_BALANCE}
+    )
+
+    def _to_float(value, default):
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    start_bal = _to_float(data.get("start_balance"), float(START_BALANCE))
+    stored_usdt = _to_float(data.get("usdt"), start_bal)
+
+    try:
+        current_bal_raw = get_usdt_balance()
+    except Exception:
+        logger.exception("Failed to fetch USDT balance; using stored balance")
+        current_bal_raw = None
+
+    if current_bal_raw is None:
+        current_bal_raw = stored_usdt
+
+    current_bal = _to_float(current_bal_raw, stored_usdt)
+
     positions = db.get_open_positions()
     pos_list = [
         {"symbol": sym, "qty": info["qty"], "entry": info["entry"]}
@@ -784,8 +805,14 @@ def format_balance_breakdown(summary: dict | None = None) -> str:
     if summary is None:
         summary = wallet_summary()
 
-    start_bal = float(summary.get("start_balance", 0.0) or 0.0)
-    current_bal = float(summary.get("current_balance", 0.0) or 0.0)
+    def _to_float(value, default):
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    start_bal = _to_float(summary.get("start_balance"), 0.0)
+    current_bal = _to_float(summary.get("current_balance"), 0.0)
     positions = summary.get("positions") or []
 
     lines = [
