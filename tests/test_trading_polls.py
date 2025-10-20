@@ -136,6 +136,67 @@ def test_strategy_sell_loss_enqueues_poll(monkeypatch, tmp_path):
 
     main.finalize_pending_decision("BTCUSDT", True)
 
+
+def test_pending_decisions_support_multiple_symbols(monkeypatch, tmp_path):
+    main = _setup_main(
+        monkeypatch,
+        tmp_path,
+        trading_pairs='["BTCUSDT", "ETHUSDT"]',
+    )
+
+    position = {
+        "qty": 2.0,
+        "entry": 100.0,
+        "stop_loss": 95.0,
+        "take_profit": None,
+        "trail_price": 100.0,
+        "trade_id": 7,
+        "stop_distance": 5.0,
+    }
+    positions = {"ETHUSDT": position.copy()}
+
+    monkeypatch.setattr(main.db, "get_open_positions", lambda: positions)
+    monkeypatch.setattr(main.db, "update_trade_pnl", lambda *args, **kwargs: None)
+    monkeypatch.setattr(main.db, "remove_position", lambda symbol: positions.pop(symbol, None))
+
+    monkeypatch.setattr(main.strategy, "should_sell", lambda *args, **kwargs: False)
+    monkeypatch.setattr(main.strategy, "should_buy", lambda *args, **kwargs: False)
+
+    def _price(symbol):
+        if symbol == "ETHUSDT":
+            return 94.0
+        if symbol == "BTCUSDT":
+            return 100.0
+        return 100.0
+
+    monkeypatch.setattr(main, "get_price", _price)
+    monkeypatch.setattr(main, "get_stop_distance", lambda s, p: 5.0)
+
+    poll_id = "poll-eth"
+    send_poll_mock = MagicMock(return_value=poll_id)
+    monkeypatch.setattr(main, "send_poll", send_poll_mock)
+    place_order_mock = MagicMock()
+    monkeypatch.setattr(main, "place_order", place_order_mock)
+
+    main.PENDING_DECISIONS.clear()
+    main.PENDING_POLLS.clear()
+
+    main.trade()
+
+    place_order_mock.assert_not_called()
+    assert "ETHUSDT" in main.PENDING_DECISIONS
+    assert "BTCUSDT" not in main.PENDING_DECISIONS
+    assert main.PENDING_POLLS[poll_id] == "ETHUSDT"
+
+    decision = main.PENDING_DECISIONS["ETHUSDT"]
+    decision["poll_id"] = poll_id
+
+    main.finalize_pending_decision("ETHUSDT", True)
+
+    place_order_mock.assert_called_once_with("ETHUSDT", "sell", 2.0)
+    assert poll_id not in main.PENDING_POLLS
+    assert "ETHUSDT" not in main.PENDING_DECISIONS
+
 def test_strategy_sell_profit_executes_immediately(monkeypatch, tmp_path):
     main = _setup_main(monkeypatch, tmp_path)
 
