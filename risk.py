@@ -46,7 +46,7 @@ def calculate_position_size(
             f"invalid inputs (balance={balance_usdt}, price={price}, stop_distance={stop_distance})"
         )
         logger.debug(msg)
-        return 0.0, None, None
+        return 0.0, None, msg
 
     risk_amount = balance_usdt * risk_pct
     if risk_amount < min_trade:
