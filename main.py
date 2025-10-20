@@ -374,7 +374,7 @@ def _store_pending_decision(decision: dict, question: str) -> None:
     send(
         (
             f"🤔 {action} {symbol} at ${price:.2f}? Reply 'CONFIRM {symbol}' or 'DECLINE {symbol}' or answer the poll."
-            "\n💡 Send 'BALANCE' at any time to see the latest wallet summary."
+            "\n💡 Reply 'BALANCE' or '/balance' any time to see the latest wallet summary."
         )
     )
     logger.info("🤔 Pending %s decision for %s", action, symbol)
