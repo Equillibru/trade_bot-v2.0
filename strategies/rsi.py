@@ -89,5 +89,5 @@ class RSIStrategy(Strategy):
             current_value = price * (1 - self.fee_rate)
             profit = current_value - entry_cost
             pnl_pct = (profit / entry_cost) * 100
-            return pnl_pct > self.min_pnl_pct
+            return pnl_pct >= self.min_pnl_pct - 1e-6
         return False
