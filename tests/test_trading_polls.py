@@ -136,7 +136,7 @@ def test_strategy_sell_loss_enqueues_poll(monkeypatch, tmp_path):
 
     main.finalize_pending_decision("BTCUSDT", True)
 
-    def test_strategy_sell_profit_executes_immediately(monkeypatch, tmp_path):
+def test_strategy_sell_profit_executes_immediately(monkeypatch, tmp_path):
     main = _setup_main(monkeypatch, tmp_path)
 
     position = {
@@ -170,8 +170,6 @@ def test_strategy_sell_loss_enqueues_poll(monkeypatch, tmp_path):
     send_poll_mock.assert_not_called()
 
     assert "BTCUSDT" not in main.PENDING_DECISIONS
-
-
 def test_poll_answer_executes_pending_sell(monkeypatch, tmp_path):
     main = _setup_main(monkeypatch, tmp_path)
 
@@ -184,6 +182,7 @@ def test_poll_answer_executes_pending_sell(monkeypatch, tmp_path):
         "trade_id": 3,
         "stop_distance": 5.0,
     }
+    positions = {"BTCUSDT": position.copy()}
 
     monkeypatch.setattr(main.db, "get_open_positions", lambda: positions)
     monkeypatch.setattr(main.db, "update_trade_pnl", lambda *args, **kwargs: None)
