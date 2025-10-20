@@ -95,3 +95,23 @@ def test_send_balance_breakdown_uses_wallet_summary(monkeypatch):
 
     assert "Starting balance: $120.00" in sent["msg"]
     assert "Positions: none" in sent["msg"]
+
+
+def test_trade_prompt_mentions_balance(monkeypatch):
+    main.PENDING_DECISIONS.clear()
+    main.PENDING_POLLS.clear()
+
+    decision = {"symbol": "BTCUSDT", "action": "buy", "price": 101.23}
+
+    monkeypatch.setattr(main, "send_poll", lambda *a, **k: None)
+
+    messages = []
+
+    def fake_send(msg):
+        messages.append(msg)
+
+    monkeypatch.setattr(main, "send", fake_send)
+
+    main._store_pending_decision(decision, "Proceed?")
+
+    assert any("BALANCE" in msg for msg in messages)
